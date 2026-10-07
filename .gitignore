@@ -1,0 +1,58 @@
+# Local environment and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+.venv/
+venv/
+env/
+
+# Node.js and frontend
+node_modules/
+frontend/node_modules/
+frontend/build/
+frontend/dist/
+frontend/.next/
+frontend/coverage/
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/.pnp.*
+
+# Generated/build files
+build/
+dist/
+coverage/
+*.log
+.DS_Store
+Thumbs.db
+
+# Runtime caches
+backend/.gis_cache/
+backend/.cache/
+backend/__pycache__/
+frontend/.cache/
+frontend/.next/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db

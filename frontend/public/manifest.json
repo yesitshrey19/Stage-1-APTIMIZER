@@ -1,0 +1,16 @@
+{
+  "short_name": "Aptimizer",
+  "name": "Aptimizer — Engineering Efficiency | Project Planning",
+  "description": "Civil engineering and real estate planning: site analysis, IS/NBC engineering, BOQ, cost and programme.",
+  "icons": [
+    { "src": "favicon.ico", "sizes": "16x16 32x32 48x48 64x64", "type": "image/x-icon" },
+    { "src": "logo192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "logo512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "apple-touch-icon.png", "sizes": "180x180", "type": "image/png" }
+  ],
+  "start_url": "/projects",
+  "display": "standalone",
+  "theme_color": "#102a4d",
+  "background_color": "#ffffff"
+}

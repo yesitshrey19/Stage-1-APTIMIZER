@@ -1,0 +1,28 @@
+NBC 2016 Part 4 — Fire and Life Safety (invented text for testing)
+NOTE — Every clause, annex and number below is fabricated for use as a test fixture. No text from the real Code appears here and none may be added.
+
+4.3 Compartmentation of Vertical Service Shafts
+
+Every vertical shaft carrying electrical risers, plumbing stacks or the wet riser itself shall be enclosed on all sides in construction of not less than the fire resistance rating declared for the floor it passes through, and shall be sealed at each floor crossing with a stopping system tested as an assembly with the services it carries. A shaft that serves more than four floors shall be broken by a barrier at every fourth floor crossing, so that a fire entering the shaft at one level is held below the barrier above it. Access doors into the shaft shall open only from the common lobby, shall be self-closing, and shall be rated at not less than half the rating of the shaft enclosure. Combustible material shall not be stored within a shaft, and a shaft shall not be used as a plenum for any ventilation system.
+
+4.6.2 Travel Distance to a Protected Route
+
+The travel distance from the door of any dwelling unit to the door of a protected stair or to an exit discharging directly into open air shall not exceed 27.5 m measured along the centre line of the path a person would actually walk, around fixed furniture and lobby screens rather than through them. Where the floor is served by more than one protected route, the distance shall be measured to the nearer of them. A dead-end pocket in which travel is possible in one direction only shall not exceed 8.5 m from the last point at which a choice of direction exists. Where an automatic sprinkler system of the class named in the contract is installed throughout the floor, the travel distance may be extended by one-fifth, but the dead-end limit shall not be relaxed on that account.
+
+4.7.4 Pressurisation of Enclosed Stair Enclosures
+
+A stair enclosure serving a building of height exceeding 16 m shall be mechanically pressurised. The system shall maintain a positive differential of 47 Pa with every door on the escape path closed, and shall not exceed 62 Pa at any door, so that the force needed to open a leaf against the differential stays within the limit stated in 4.7.5. With the doors on any three consecutive floors held open, the system shall maintain an outward velocity of not less than 0.85 m/s through those openings. Relief of the excess shall be by a barometric damper discharging to open air and not by leakage through the lift shaft. The fan shall start on a signal from the detection system and shall also be startable by a labelled manual control at the fire command station.
+
+4.11 Smoke Venting of Enclosed Podium Levels
+
+An enclosed podium level, including a stilt or a partly submerged parking deck, shall be provided with a smoke venting system capable of six air changes per hour under normal use and eleven air changes per hour on a signal from the detection system. Extract points shall be divided between high level and low level in the ratio of two to one, since the layer that endangers a person leaving the deck is the one that has cooled and fallen. Make-up air shall be drawn from a point remote from the extract discharge, and the two shall not share a common shaft. The extract fans and their wiring shall be rated to remain in service at 250 °C for not less than 90 min.
+
+Annex A — Worked Example: Static Fire Water Reserve for a Residential Tower of 31 m
+
+This annex is illustrative and forms no part of the requirements of this Part.
+
+A residential tower of 31 m height, with a single wing of eight dwelling units per floor and a footprint of 620 m², is served by one wet riser and one hose reel per floor. The static reserve is taken as the sum of the riser allowance and the hose reel allowance, each drawn from Table 7, less any credit permitted for a dedicated fire pump drawing from the same tank.
+
+The riser allowance for a building in the height band above 24 m and up to 36 m is 74 000 l. The hose reel allowance is 4 500 l per riser, giving 4 500 l for the single riser in this example. The sum is 78 500 l, which is rounded upward to the next 5 000 l to give a declared reserve of 80 000 l.
+
+The reserve shall be held in a tank from which no outlet other than the fire pump suction is taken below the level of the declared reserve, so that domestic draw-off cannot deplete it. Where the reserve is split between two compartments, each compartment shall be capable of being isolated and drained without taking the other out of service, and the declared reserve shall be the sum of the two compartments only if both are connected to the pump suction through a common header.

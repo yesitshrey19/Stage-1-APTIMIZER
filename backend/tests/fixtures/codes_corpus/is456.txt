@@ -1,0 +1,56 @@
+IS 456:2000 — Plain and Reinforced Concrete — Code of Practice (invented text for testing)
+NOTE — Every clause, table and number below is fabricated for use as a test fixture. No text from the real standard appears here and none may be added.
+
+4.2 Classification of Coarse Aggregate Fractions
+
+Coarse aggregate delivered to site shall be received in not fewer than two nominal fractions, designated in this clause as the upper fraction and the lower fraction, and each fraction shall be stockpiled separately on a hard, drained platform kept clear of the batching apron. The upper fraction shall be that retained on the 11.2 mm sieve and the lower fraction that passing it. Where a single graded supply is offered in place of two separate fractions, the supplier shall furnish sieve analyses for three consecutive consignments and the concrete producer shall satisfy himself that the combined grading falls within the band adopted for the approved mix proportions.
+
+4.2.1 Blending of Fractions at the Batching Plant
+
+The two fractions shall be proportioned by mass and not by loose volume, and the weigh hopper shall be zeroed at the start of each shift. Where the blend ratio is altered by more than five percent from the ratio assumed in the approved mix proportions, fresh trial batches shall be cast and the workability re-established before the revised blend is used in permanent work.
+
+7.1 Thermal Curing of Precast Ribbed Soffit Panels
+
+Ribbed soffit panels cast in a covered yard may be cured by low-pressure saturated steam in place of continuous water curing, provided the cycle set out in this clause is followed for every casting bed. A presteaming delay of not less than three hours shall be allowed after the final set before any heat is admitted to the enclosure. The enclosure temperature shall then be raised at a rate not exceeding 12 °C per hour to a soak temperature between 58 °C and 66 °C, held at the soak temperature for not less than four hours, and reduced at a rate not exceeding 15 °C per hour until the panel surface is within 11 °C of the yard air temperature. Panels shall not be struck from the bed nor lifted by their ribs until this differential has been achieved. Steam shall not impinge directly on the exposed rib faces, and condensate shall be drained clear of the bed so that it does not pond against the panel edges or wash the rib fillets.
+
+7.1.1 Record of the Curing Cycle
+
+A continuous record of enclosure temperature against time shall be kept for every casting bed, retained for the period stated in the contract, and produced on demand before the panels concerned are dispatched from the yard. A bed for which no such record exists shall be treated as uncured for the purposes of acceptance, whatever the strength of the accompanying cubes.
+
+8.2 Exposure Classes and the Durability Provisions Attaching to Them
+
+Every element shall be assigned one of the six exposure classes named in Table 5, and the assignment shall be recorded on the drawing that details the element rather than left to the batching plant. Where an element spans two environments, as a plinth beam does where it passes from a buried length into a ventilated crawl space, the more severe of the two classes shall govern over the whole length of the element. The provisions of Table 5 are minima that apply together: satisfying the cover column while exceeding the water-binder column is not compliance with this clause.
+
+Table 5 — Nominal Cover, Free Water-Binder Ratio and Minimum Binder Content by Exposure Class
+
+| Exposure class | Nominal cover, mm | Max free water-binder ratio | Min binder content, kg/m³ | Min grade |
+| Sheltered | 17 | 0.61 | 265 | M18 |
+| Moderate | 23 | 0.57 | 285 | M23 |
+| Alternating | 33 | 0.52 | 315 | M27 |
+| Saline spray | 41 | 0.47 | 335 | M32 |
+| Buried aggressive | 49 | 0.43 | 355 | M37 |
+| Industrial aggressive | 58 | 0.38 | 395 | M43 |
+
+12.4 Assessment of Members in Which the Cover Is in Doubt
+
+An assessment under this clause shall be put in hand whenever the cover to the outermost reinforcement is reported as short of the value required by Table 5 over a contiguous area exceeding two square metres, or wherever rust staining, drumminess under light hammer or a longitudinal crack following the line of a bar is observed on a face that has not yet been handed over.
+
+The suspect face shall first be surveyed with an electromagnetic covermeter on a grid of 300 mm in each direction, extended one bay beyond the last reading that departs from the required cover. The instrument shall be calibrated against a bar of the same diameter at the start and at the close of each survey, and readings taken within 75 mm of a lap, a bend or a cast-in ferrule shall be discarded as unreliable rather than averaged in.
+
+Not fewer than three breakouts shall then be cut through to the reinforcement at the locations that returned the smallest cover, and the exposed cover shall be measured directly with a depth gauge. Where the direct measurement differs from the covermeter reading at the same point by more than 5 mm, the survey shall be repeated in full with a recalibrated instrument before any conclusion is drawn from it.
+
+The member shall be judged on the cover deficit so established rather than on the extreme reading. The deficit shall be taken as the difference between the value required by Table 5 and the mean of the lowest quarter of the verified readings, and the exposure class of the member shall be re-entered at the class whose tabulated cover that mean satisfies. A member re-entered at a class more severe than the one on the drawing is compliant only if its binder content and water-binder ratio also satisfy the re-entered class.
+
+Where the deficit cannot be accommodated by re-entry, the member shall be made good by one of the measures agreed in writing with the designer: local recasting of the cover zone in a bonded repair mortar of the same class, application of a barrier coating of the type named in the contract, or an increase in the frequency of inspection over the service life. Sacrificial anodes shall not be adopted in place of restoring cover unless the designer records the reason.
+
+The assessment, the survey grid, the breakout photographs and the measure adopted shall be entered in the durability record for the structure and shall not be closed out until the designer has countersigned the entry.
+
+23.2 Control of Deflection
+
+The deflection of a flexural member shall be such that the appearance and the serviceability of the structure are not impaired, and such that the finishes, partitions and glazing carried by the member are not damaged. Deflection may be controlled either by the empirical span to effective depth ratios of 23.2.1 or by direct computation; where the two disagree, the computation governs, and the designer shall record which route was taken.
+
+23.2.1 Limiting Span to Effective Depth Ratios
+
+For beams and one-way slabs of normal proportions carrying no more than the imposed load assumed in design, the ratio of span to effective depth shall not exceed 9 for a cantilever, 21 for a simply supported member and 29 for a member continuous at both ends. The ratios apply directly to spans up to 9.5 m; beyond that span they shall be multiplied by 9.5 divided by the span in metres. Both ratios shall be modified for the area and the stress of tension reinforcement, and for the area of compression reinforcement, by the multipliers of Table 11.
+
+23.2.1.1 For flanged beams the ratios of 23.2.1 shall be applied to the rib width and multiplied by 0.83.
