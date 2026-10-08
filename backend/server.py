@@ -2017,7 +2017,10 @@ async def ai_consult(project_id: str, body: ConsultIn,
         "question": body.question or None,
         "project": site["project"],
         "plot": site["plot"],
-        "site": site if keys is None else {k: site.get(k) for k in keys if site.get(k) is not None},
+        "site": {k: v for k, v in site.items()
+                 if v is not None and k not in ("verified_clauses", "project", "plot")
+                 and (keys is None or k in keys)},
+        "verified_clauses": gislib.VERIFIED_CLAUSES,
     }
     return await _run_ai("consult", context, store_at=f"ai.consult.{topic}",
                          project_id=project_id, user=user, activity=f"ai.consult.{topic}")

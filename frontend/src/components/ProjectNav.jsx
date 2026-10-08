@@ -53,6 +53,9 @@ function ModuleLink({ item, active, onPick, onDone }) {
 
 export function ProjectNav({ groups, active, onPick }) {
   const [sheetOpen, setSheetOpen] = useState(false);
+  // Controlled, so picking a module closes the dropdown -- a button inside it does not
+  // close a Radix navigation menu on its own and the open menu covered the module.
+  const [menu, setMenu] = useState("");
   const [gkey, glabel, items = []] = groups[0] || [];
   const current = items.find((m) => m[0] === active);
   const CurrentIcon = current?.[2];
@@ -69,9 +72,9 @@ export function ProjectNav({ groups, active, onPick }) {
     <nav className="sticky top-0 z-20 border-b border-slate-800 bg-slate-900 text-slate-300" data-testid="module-nav">
       {/* Desktop */}
       <div className="hidden items-center gap-2 px-2 lg:flex">
-        <NavigationMenu>
+        <NavigationMenu value={menu} onValueChange={setMenu}>
           <NavigationMenuList>
-            <NavigationMenuItem>
+            <NavigationMenuItem value="stage">
               <NavigationMenuTrigger
                 data-testid={`nav-group-${gkey}`}
                 className="h-11 gap-1.5 rounded-none bg-transparent text-[11px] uppercase tracking-wide font-bold text-white hover:bg-slate-800 hover:text-white focus:bg-slate-800 focus:text-white data-[state=open]:bg-slate-800 data-[state=open]:text-white"
@@ -82,7 +85,7 @@ export function ProjectNav({ groups, active, onPick }) {
               <NavigationMenuContent>
                 <ul className="flex flex-col p-1.5 gap-0.5 w-80 sm:w-[380px]">
                   {items.map((item) => (
-                    <ModuleLink key={item[0]} item={item} active={active} onPick={onPick} />
+                    <ModuleLink key={item[0]} item={item} active={active} onPick={onPick} onDone={() => setMenu("")} />
                   ))}
                 </ul>
               </NavigationMenuContent>

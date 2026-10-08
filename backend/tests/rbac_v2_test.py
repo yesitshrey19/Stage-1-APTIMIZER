@@ -106,8 +106,8 @@ def test_v1_regression_analysis_and_reports():
         "application/vnd.openxmlformats-officedocument.spreadsheetml"
     )
 
-    # Executive PDF download
-    pdf = requests.get(f"{API}/projects/{pid}/reports/executive", headers=ah, timeout=60)
+    # Site PDF download (Stage 1 publishes the Site reports only)
+    pdf = requests.get(f"{API}/projects/{pid}/reports/plot", headers=ah, timeout=60)
     assert pdf.status_code == 200
     assert len(pdf.content) > 500
     assert pdf.content[:4] == b"%PDF"

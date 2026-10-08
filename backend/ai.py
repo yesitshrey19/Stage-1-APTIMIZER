@@ -13,6 +13,7 @@ Neither set => AIUnavailable, which the API layer turns into a 503 with a messag
 names the env var to set, instead of a stack trace.
 """
 import asyncio
+import weakref
 import json
 import logging
 import os
@@ -40,13 +41,51 @@ GROK_FALLBACK_MODELS = []     # set GROK_FALLBACK_MODELS in .env once you have a
 # interchangeable, which is what KEY_PREFIXES below exists to catch.
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b"
-GROQ_FALLBACK_MODELS = ["llama-3.3-70b-versatile", "openai/gpt-oss-20b"]
+GROQ_FALLBACK_MODELS = ["openai/gpt-oss-20b"]   # llama-3.3-70b-versatile was retired by Groq
 
 # Every provider issues keys with a recognisable prefix. Checking it turns "the AI button
 # returns 401" into a message that names the actual mistake.
 KEY_PREFIXES = {"groq": "gsk_", "grok": "xai-", "gemini": ("AIza", "AQ.")}
 
-RETRY_ATTEMPTS = max(1, int(os.environ.get("AI_RETRY_ATTEMPTS") or 3))  # per model, before stepping down
+RETRY_ATTEMPTS = max(1, int(os.environ.get("AI_RETRY_ATTEMPTS") or 2))  # per model, before stepping down
+# One model call may take this long before it counts as busy and the chain moves on. The SDK
+# defaults (10 minutes, plus their own hidden retries) let a stuck provider hold a request
+# far longer than anyone waits at a button.
+AI_TIMEOUT_S = float(os.environ.get("AI_TIMEOUT_S") or 45)
+
+# Clients are reused so every call does not open a new HTTPS connection (TLS handshake).
+# An async client's connection pool belongs to the event loop it was first used on, so the
+# cache is per loop: the server runs one loop, but tests and scripts start several.
+_CLIENTS: "weakref.WeakKeyDictionary" = weakref.WeakKeyDictionary()
+
+
+def _loop_clients() -> dict:
+    return _CLIENTS.setdefault(asyncio.get_running_loop(), {})
+
+
+def _openai_client(key: str, base_url: str):
+    from openai import AsyncOpenAI
+    cache, k = _loop_clients(), ("openai", key, base_url)
+    if k not in cache:
+        cache[k] = AsyncOpenAI(api_key=key, base_url=base_url, timeout=AI_TIMEOUT_S, max_retries=0)
+    return cache[k]
+
+
+def _gemini_client(key: str):
+    from google import genai
+    from google.genai import types
+    cache, k = _loop_clients(), ("gemini", key)
+    if k not in cache:
+        cache[k] = genai.Client(api_key=key,
+                                http_options=types.HttpOptions(timeout=int(AI_TIMEOUT_S * 1000)))
+    return cache[k]
+
+
+def _is_missing_model(exc: Exception) -> bool:
+    """The provider no longer offers this model (retired, renamed, not on this key)."""
+    msg = str(exc).lower()
+    return ("model_not_found" in msg or "does not exist" in msg
+            or ("not found" in msg and "model" in msg) or "is not supported" in msg)
 RETRY_BASE_DELAY = 1.5        # seconds; doubles each attempt, plus jitter
 
 # Status codes worth retrying: the service is busy or briefly broken, the request is fine.
@@ -202,6 +241,10 @@ async def _with_retries(models: list, call, label: str) -> dict:
                 text = await call(model)
             except Exception as exc:
                 last = exc
+                if _is_missing_model(exc):
+                    # A retired fallback must not sink the request: skip to the next model.
+                    logger.warning("%s %s is not available, trying next model: %s", label, model, exc)
+                    break
                 if not _is_transient(exc):
                     logger.warning("%s %s failed permanently: %s", label, model, exc)
                     raise AIFailed(str(exc)) from exc
@@ -238,10 +281,9 @@ async def _with_retries(models: list, call, label: str) -> dict:
 
 async def _gemini_generate(key: str, models: list, system: str, prompt: str,
                            temperature: float = 0.15) -> dict:
-    from google import genai
     from google.genai import types
 
-    client = genai.Client(api_key=key)
+    client = _gemini_client(key)
     config = types.GenerateContentConfig(system_instruction=system, temperature=temperature)
 
     async def call(model):
@@ -255,9 +297,7 @@ async def _openai_compatible_generate(key: str, base_url: str, models: list,
                                       system: str, prompt: str, label: str,
                                       temperature: float = 0.15) -> dict:
     """Any endpoint speaking the OpenAI chat-completions format -- xAI's Grok included."""
-    from openai import AsyncOpenAI
-
-    client = AsyncOpenAI(api_key=key, base_url=base_url)
+    client = _openai_client(key, base_url)
 
     async def call(model):
         r = await client.chat.completions.create(
@@ -297,10 +337,9 @@ async def stream_markdown(system: str, prompt: str, *, session_hint: str = "apti
     model = chain[0]
 
     if name in ("grok", "groq"):
-        from openai import AsyncOpenAI
         env, base = (("XAI_API_KEY", XAI_BASE_URL) if name == "grok"
                      else ("GROQ_API_KEY", GROQ_BASE_URL))
-        client = AsyncOpenAI(api_key=os.environ[env].strip(), base_url=base)
+        client = _openai_client(os.environ[env].strip(), base)
         stream = await client.chat.completions.create(
             model=model,
             messages=[{"role": "system", "content": system},
@@ -313,9 +352,8 @@ async def stream_markdown(system: str, prompt: str, *, session_hint: str = "apti
         return
 
     if name == "gemini":
-        from google import genai
         from google.genai import types as gtypes
-        client = genai.Client(api_key=os.environ["GEMINI_API_KEY"].strip())
+        client = _gemini_client(os.environ["GEMINI_API_KEY"].strip())
         stream = await client.aio.models.generate_content_stream(
             model=model, contents=prompt,
             config=gtypes.GenerateContentConfig(system_instruction=system, temperature=temperature))
@@ -350,9 +388,31 @@ async def generate_markdown(system: str, prompt: str, *, session_hint: str = "ap
     p = provider()
     if not p["configured"]:
         raise AIUnavailable(p["detail"])
+    try:
+        return await _generate_with(p["provider"], p["model"], system, prompt,
+                                    prefer_fast=prefer_fast, temperature=temperature)
+    except AIFailed as first:
+        # With keys for more than one provider, an outage at one (every model busy, or the
+        # key revoked) is answered by the next instead of failing the button. A provider
+        # pinned with AI_PROVIDER is a deliberate choice, so it is never second-guessed.
+        if (os.environ.get("AI_PROVIDER") or "").strip():
+            raise
+        for other in AUTO_ORDER:
+            if other == p["provider"] or not _key_for(other):
+                continue
+            logger.warning("%s failed (%s); falling back to %s", p["provider"], first, other)
+            try:
+                return await _generate_with(other, _describe(other)["model"], system, prompt,
+                                            prefer_fast=prefer_fast, temperature=temperature)
+            except AIFailed:
+                continue
+        raise first
 
-    name = p["provider"]
-    chain = [p["model"]] + [m for m in _fallback_models(name) if m != p["model"]]
+
+async def _generate_with(name: str, model: str, system: str, prompt: str, *,
+                         prefer_fast: bool = False, temperature: float = 0.15) -> dict:
+    """One provider's model chain."""
+    chain = [model] + [m for m in _fallback_models(name) if m != model]
     if prefer_fast and len(chain) > 1:
         chain = chain[1:] + chain[:1]
 
@@ -393,8 +453,17 @@ _BASE = (
     "no restating the question."
 )
 
+# Site-stage answers may cite only clauses the code study verified; everything else is an
+# Aptimizer method and must be called one. The renderer shows headings and bullets, not tables.
+_SITE_RULES = (
+    " Cite a code clause ONLY when it appears in the JSON's `verified_clauses` list, worded as "
+    "given there. Flood scores, suitability weights, slope thresholds and anything else not on "
+    "that list are Aptimizer screening methods -- say so instead of naming a clause. Use "
+    "headings and bullet points only: no markdown tables and no horizontal rules."
+)
+
 PROMPTS = {
-    "gis": _BASE + (
+    "gis": _BASE + _SITE_RULES + (
         " Write a site analysis with these sections: **Verdict** (2 sentences), "
         "**Strengths** (bullets), **Weaknesses & Risks** (bullets), and "
         "**Design & Engineering Recommendations** (bullets referencing slope, drainage, "
@@ -605,7 +674,7 @@ derivations, prose for explanations, and short definitions for terminology.""",
         "formulas as plain text an engineer would write by hand -- V = Ah x W, "
         "sqrt(55.7), d^2."
     ),
-    "consult": _BASE + (
+    "consult": _BASE + _SITE_RULES + (
         " A design professional is consulting you on one topic about this project. The "
         "topic and the project's relevant computed state are supplied. Write a standalone "
         "advisory memo: **Position** (2-3 sentences -- where the project stands on this "

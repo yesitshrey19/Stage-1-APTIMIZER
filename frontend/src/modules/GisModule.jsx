@@ -495,6 +495,7 @@ export default function GisModule({ project, projectId, readOnly, setProject }) 
             defaultTopic="flood"
             readOnly={readOnly}
             aiReady={aiReady}
+            gis={gis}
             testid="ai-consult-gis"
           />
         </>

@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Brand } from "../components/Brand";
 import { useAuth } from "../context/AuthContext";
 import { requestErrorMessage } from "../lib/api";
+import { useSlowHint, WAKING_MESSAGE } from "../lib/useSlowHint";
 import { Reveal, RevealItem, Stagger } from "../components/landing/Reveal";
 import {
   AuthGlassStyles,
@@ -32,6 +33,7 @@ export default function Login() {
   const [step, setStep] = useState("email");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const slow = useSlowHint(busy);
   const passwordInputRef = useRef(null);
 
   const isEmailValid = /\S+@\S+\.\S+/.test(email);
@@ -334,6 +336,12 @@ export default function Login() {
               </AnimatePresence>
             </div>
           </fieldset>
+
+          {slow && (
+            <p className="w-full text-center text-xs text-foreground/60" data-testid="login-waking">
+              {WAKING_MESSAGE}
+            </p>
+          )}
 
           <AnimatePresence>
             {error && (

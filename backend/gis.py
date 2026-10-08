@@ -47,7 +47,8 @@ EARTH_R = 6371000.0
 #    and basic wind speeds to Annex A as amended in 2020 (Delhi 50 m/s).
 # 7: IS 1893 PGA reported as Z (Cl. 3.28) with the code's soil spectral ratios 1/1.36/1.67;
 #    liquefaction flagged in every zone; Kd = 1.0 in the cyclone belt (IS 875-3 Cl. 7.2.1).
-ANALYSIS_RULES_VERSION = 7
+# 8: plinth guidance cites NBC Part 3 Cl. 12.1.1 (the 'Part 9 Table 4' citation was wrong).
+ANALYSIS_RULES_VERSION = 8
 
 # A fountain or ornamental pool is tagged natural=water like a lake, and on its own was
 # enough to mark a plot "high" flood risk. Ponds and tanks that matter for drainage are
@@ -531,26 +532,41 @@ def _sample_points(coords):
     return grid, profile, ring
 
 
+_http = requests.Session()         # keep-alive: repeat lookups skip the TLS handshake
+
+
+def _elevation_chunk(chunk):
+    r = _http.get(OPEN_METEO_ELEVATION_URL, timeout=ELEVATION_TIMEOUT_S, params={
+        "latitude": ",".join(f"{p[0]:.6f}" for p in chunk),
+        "longitude": ",".join(f"{p[1]:.6f}" for p in chunk),
+    })
+    if r.status_code != 200:
+        raise RuntimeError(f"HTTP {r.status_code}")
+    values = r.json().get("elevation") or []
+    if len(values) != len(chunk):
+        raise RuntimeError("incomplete elevation response")
+    return [float(v or 0) for v in values]
+
+
 def _fetch_elevation_open_meteo(points):
-    out = []
-    for i in range(0, len(points), 100):           # the API takes up to 100 points a call
-        chunk = points[i:i + 100]
-        r = requests.get(OPEN_METEO_ELEVATION_URL, timeout=ELEVATION_TIMEOUT_S, params={
-            "latitude": ",".join(f"{p[0]:.6f}" for p in chunk),
-            "longitude": ",".join(f"{p[1]:.6f}" for p in chunk),
-        })
-        if r.status_code != 200:
-            raise RuntimeError(f"HTTP {r.status_code}")
-        values = r.json().get("elevation") or []
-        if len(values) != len(chunk):
-            raise RuntimeError("incomplete elevation response")
-        out += [float(v or 0) for v in values]
-    return out
+    chunks = [points[i:i + 100] for i in range(0, len(points), 100)]   # 100 points a call
+    if len(chunks) == 1:
+        return _elevation_chunk(chunks[0])
+    with ThreadPoolExecutor(max_workers=min(len(chunks), 4)) as pool:
+        return [v for part in pool.map(_elevation_chunk, chunks) for v in part]
 
 
 def fetch_elevation(points):
+    # Ground levels do not change, so a re-run of the same plot reads them from the cache
+    # the map data already uses instead of asking the elevation service again.
+    key = "elevation:" + ";".join(f"{p[0]:.6f},{p[1]:.6f}" for p in points)
+    cached = _cache_read(key)
+    if cached is not None and len(cached.get("values") or []) == len(points):
+        return cached["values"], {"ok": True, "endpoint": "cache"}
     try:
-        return _fetch_elevation_open_meteo(points), {"ok": True, "endpoint": OPEN_METEO_ELEVATION_URL}
+        values = _fetch_elevation_open_meteo(points)
+        _cache_write(key, {"values": values})
+        return values, {"ok": True, "endpoint": OPEN_METEO_ELEVATION_URL}
     except Exception as first:
         body = {"locations": [{"latitude": p[0], "longitude": p[1]} for p in points]}
         try:
@@ -706,9 +722,10 @@ def flood_risk(terrain, water, drains=None):
     else:
         plinth = 0.45
     response = [
-        f"Set finished floor (plinth) at least {plinth:.2f} m above surrounding road/ground level — "
-        "NBC 2016 Vol 2, Pl. 9, Table 4 practice for flood-prone sites" if level != "low"
-        else f"Standard plinth of about {plinth:.2f} m above road level is sufficient",
+        f"Set finished floor (plinth) at least {plinth:.2f} m above surrounding ground — NBC 2016 "
+        "Part 3 Cl. 12.1.1 sets 0.45 m; the extra height is Aptimizer's margin for flood-prone sites"
+        if level != "low"
+        else f"Standard plinth of {plinth:.2f} m above surrounding ground (NBC 2016 Part 3 Cl. 12.1.1)",
         "Basements need pumped sump + standby pump; keep electricals above design flood level"
         if level == "high" else
         "Provide storm-water drains sized for local cloudburst intensity before monsoon"
@@ -1393,6 +1410,31 @@ def staleness(stored, coords, rules_version=ANALYSIS_RULES_VERSION):
     return None
 
 
+# The only clause citations the AI may use. Each was checked against the code text in the
+# Stage 1 code & bye-law study (Aptimizer_Stage1_Code_Byelaw_Study_v2.pdf). Without this
+# list the model "cites" plausible clause numbers that do not say what it claims.
+VERIFIED_CLAUSES = [
+    "IS 1893 (Part 1):2016 Annex E -- seismic zone by town",
+    "IS 1893 (Part 1):2016 Table 3 -- zone factor Z (II 0.10, III 0.16, IV 0.24, V 0.36)",
+    "IS 1893 (Part 1):2016 Cl. 3.28 -- Z is the peak ground acceleration considered for design",
+    "IS 1893 (Part 1):2016 Cl. 6.4.2 and Table 4 -- design spectra by soil type I/II/III",
+    "IS 1893 (Part 1):2016 Cl. 6.3.5.3 and Annex F -- liquefaction of submerged loose sands",
+    "IS 875 (Part 3):2015 Annex A as substituted by Amendment No. 2 (2020) -- basic wind speed Vb",
+    "IS 875 (Part 3):2015 Cl. 6.3 -- Vz = Vb k1 k2 k3 k4",
+    "IS 875 (Part 3):2015 Table 1 -- risk coefficient k1",
+    "IS 875 (Part 3):2015 Table 2 -- terrain and height factor k2",
+    "IS 875 (Part 3):2015 Cl. 6.3.3 -- topography factor k3",
+    "IS 875 (Part 3):2015 Cl. 6.3.4 -- importance factor k4 (cyclonic region)",
+    "IS 875 (Part 3):2015 Cl. 7.2 -- design wind pressure pz = 0.6 Vz^2",
+    "IS 875 (Part 3):2015 Cl. 7.2.1 -- wind directionality factor Kd",
+    "NBC 2016 Part 3 Cl. 12.1.1 -- plinth at least 450 mm above surrounding ground",
+    "NBC 2016 Part 3 Table 4 (Cl. 8.2.3.1) -- side and rear open space by building height",
+    "NBC 2016 Part 3 Cl. 9.4.1(a) -- height limit from abutting road width and front open space",
+    "NBC 2016 Part 3 Cl. 4.6 -- access for high-rise buildings: 12 m road, 6 m fire-tender access",
+    "NBC 2016 Part 4 Cl. 2.38 -- high-rise building is 15 m or above",
+]
+
+
 def ai_context(project, gis):
     t, f, a, s = gis["terrain"], gis["flood"], gis["accessibility"], gis["suitability"]
     return {
@@ -1415,4 +1457,5 @@ def ai_context(project, gis):
                         "breakdown": [{"factor": b["factor"], "score": b["score"],
                                        "contribution": b["contribution"]} for b in s["breakdown"]]},
         "buildability": gis["buildability"],
+        "verified_clauses": VERIFIED_CLAUSES,
     }

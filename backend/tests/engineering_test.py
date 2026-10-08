@@ -335,8 +335,10 @@ def test_code_library_full_list():
 
 
 # ---------------------------------------------------------------- reports
+# Stage 1 publishes the Site reports only; the engineering and executive reports belong to
+# later stages and must be refused, not half-built.
 @pytest.mark.parametrize("rtype", ["structural", "water", "fire", "accessibility", "engineering", "executive"])
-def test_engineering_reports(project, headers, rtype):
+def test_engineering_reports_are_not_offered_in_stage1(project, headers, rtype):
     r = requests.get(f"{API}/projects/{project}/reports/{rtype}", headers=headers, timeout=90)
-    assert r.status_code == 200, r.text
-    assert r.content[:4] == b"%PDF" and len(r.content) > 2000
+    assert r.status_code == 400, r.text
+    assert "Unknown report type" in r.json()["detail"]

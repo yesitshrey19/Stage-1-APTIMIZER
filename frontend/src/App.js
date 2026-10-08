@@ -12,15 +12,18 @@ import Profile from "./pages/Profile";
 import Workspace from "./pages/Workspace";
 import Admin from "./pages/Admin";
 import AppBackground from "./components/AppBackground";
+import { useSlowHint, WAKING_MESSAGE } from "./lib/useSlowHint";
 
 const Protected = ({ children }) => {
   const { user } = useAuth();
+  const slow = useSlowHint(user === null);
   if (user === null)
     return (
       <div className="min-h-screen grid place-items-center" data-testid="auth-loading">
         <div className="flex flex-col items-center gap-3">
           <BrandMark className="h-12 w-auto animate-pulse" />
           <span className="text-sm text-slate-500">Loading Aptimizer…</span>
+          {slow && <span className="text-xs text-slate-400 max-w-xs text-center" data-testid="auth-waking">{WAKING_MESSAGE}</span>}
         </div>
       </div>
     );
