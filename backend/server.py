@@ -1982,15 +1982,13 @@ class ConsultIn(BaseModel):
     question: str = ""
 
 
+# Stage 1 (Site) offers the consultant on the site analysis only, so every memo is grounded
+# in the GIS results the user can see on the same screen -- nothing from later stages.
 _CONSULT_TOPICS = {
-    "seismic": {"label": "Seismic design", "slice": "engineering"},
-    "wind": {"label": "Wind loading", "slice": "gis"},
-    "flood": {"label": "Flood & drainage", "slice": "gis"},
-    "layout": {"label": "Layout & massing", "slice": "planning"},
-    "cost": {"label": "Cost & quantities", "slice": "cost"},
-    "compliance": {"label": "Compliance & approvals", "slice": "compliance"},
-    "parking": {"label": "Parking & access", "slice": "planning"},
-    "general": {"label": "General advisory", "slice": "summary"},
+    "flood": {"label": "Flood & drainage", "keys": ("flood", "terrain", "buildability")},
+    "wind": {"label": "Wind loading", "keys": ("wind", "wind_design", "terrain")},
+    "seismic": {"label": "Earthquake (site)", "keys": ("seismic", "terrain", "buildability")},
+    "general": {"label": "General site advisory", "keys": None},
 }
 
 
@@ -2003,52 +2001,24 @@ async def ai_consult_topics(user: dict = Depends(get_current_user)):
 async def ai_consult(project_id: str, body: ConsultIn,
                      user: dict = Depends(get_current_user)):
     topic = body.topic if body.topic in _CONSULT_TOPICS else "general"
-    proj = await load_project(project_id, user)
-    an = engine.analyse(proj)
-    areas, comp, cost, park = an["areas"], an["compliance"], an["cost"], an["parking"]
+    proj = await load_project(project_id, user, write=True)
+    g = proj.get("gis")
+    if not g:
+        raise HTTPException(status_code=400,
+                            detail="Run the site analysis first -- there is no site data to advise on")
+    site = gislib.ai_context(proj, g)
+    site["seismic"] = {k: (g.get("seismic") or {}).get(k) for k in
+                       ("zone", "zone_factor_z", "zone_label", "site_class", "soil_factor",
+                        "pga_rock_g", "pga_surface_g", "liquefaction_risk", "risk_flags")}
+    site["wind_design"] = (g.get("wind") or {}).get("design")
+    keys = _CONSULT_TOPICS[topic]["keys"]
     context = {
         "topic": _CONSULT_TOPICS[topic]["label"],
         "question": body.question or None,
-        "project": {"name": proj.get("name"), "location": proj.get("location")},
-        "scheme": {"plot_area_sqm": areas["plot_area_sqm"], "far": areas["far"],
-                   "ground_coverage_pct": areas["ground_coverage_pct"],
-                   "open_space_pct": areas["open_space_pct"],
-                   "total_units": areas["total_units"], "towers": len(proj.get("towers") or []),
-                   "max_height_m": areas["max_height_m"]},
-        "capacity_forecast": an.get("capacity_forecast"),
-        "parking": {"required": park["required_slots"], "provided": park["provided_slots"]},
-        "cost_inr": {"total": cost["total"], "per_unit": cost["per_unit"],
-                     "per_sqm": cost.get("per_sqm")},
+        "project": site["project"],
+        "plot": site["plot"],
+        "site": site if keys is None else {k: site.get(k) for k in keys if site.get(k) is not None},
     }
-    if topic == "seismic":
-        eng = englib.analyse_engineering(proj, an)
-        context["engineering"] = {k: {"outputs": m.get("outputs"),
-                                       "recommendation": m.get("recommendation"),
-                                       "code_refs": m.get("code_refs") or m.get("codes")}
-                                   for k, m in (eng.get("modules") or {}).items()
-                                   if k in ("seismic", "loads", "foundation")}
-        context["warnings"] = eng.get("warnings")
-    elif topic in ("wind", "flood"):
-        g = proj.get("gis") or {}
-        context["gis"] = {k: g.get(k) for k in ("wind", "flood", "seismic", "location")
-                          if g.get(k) is not None}
-        if not context["gis"]:
-            raise HTTPException(status_code=400,
-                                detail="Run the site analysis first -- there is no GIS data to advise on")
-    elif topic in ("layout", "parking"):
-        context["optimisers"] = {k: {"current": v.get("current"), "best": v.get("best"),
-                                     "changes": v.get("changes"), "feasible": v.get("feasible")}
-                                 for k, v in (planoptlib.analyse(proj, an) or {}).items()
-                                 if isinstance(v, dict) and "current" in v}
-    elif topic == "cost":
-        context["quantities"] = an["quantities"]
-        context["boq"] = {k: v for k, v in an["boq"].items() if k != "currency"}
-    elif topic == "compliance":
-        context["rules"] = [{"code": r["code"], "label": r["label"], "requirement":
-                             f"{r['operator']} {r['threshold']}{r.get('unit') or ''}",
-                             "actual": r["actual"], "status": r["status"]}
-                            for r in comp["results"]]
-        context["score_pct"] = comp["score"]
     return await _run_ai("consult", context, store_at=f"ai.consult.{topic}",
                          project_id=project_id, user=user, activity=f"ai.consult.{topic}")
 

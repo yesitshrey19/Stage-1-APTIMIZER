@@ -41,7 +41,8 @@ def test_consult_topics_endpoint(api_project):
     assert res.status_code == 200
     topics = res.json()
     ids = [t["id"] for t in topics]
-    assert {"seismic", "wind", "flood", "cost", "general"} <= set(ids)
+    # Stage 1 offers the consultant on the site analysis only.
+    assert set(ids) == {"flood", "wind", "seismic", "general"}
 
 
 def test_consult_endpoint_validates_gis_dependency(api_project):
@@ -52,6 +53,9 @@ def test_consult_endpoint_validates_gis_dependency(api_project):
                       json={"topic": "wind", "question": ""})
     assert res.status_code == 400
     assert "GIS" in res.json()["detail"] or "site analysis" in res.json()["detail"]
+    # every Stage 1 topic, general included, is grounded in the site analysis
+    res = client.post(f"/api/projects/{pid}/ai/consult", json={"topic": "general"})
+    assert res.status_code == 400
 
 
 def test_explain_figures_listing(api_project):
