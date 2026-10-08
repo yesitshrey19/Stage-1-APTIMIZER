@@ -86,14 +86,21 @@ logger = logging.getLogger("aptimizer")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     authlib.check_secret()
+    # Indexes and the admin account are set up independently: a failing index (for example
+    # a database user without index rights) must never leave the deployment without an admin.
     try:
         await db.users.create_index("email", unique=True)
         await db.login_attempts.create_index("identifier")
         await db.projects.create_index("owner_id")
         await db.shares.create_index([("project_id", 1), ("user_id", 1)])
         await db.activity.create_index("project_id")
-        admin_email = os.environ.get("ADMIN_EMAIL", "admin@aptimizer.com").strip().lower()
-        admin_password = os.environ.get("ADMIN_PASSWORD", "Aptimizer@123")
+    except Exception as e:
+        logger.warning("Startup index creation encountered issue: %s", e)
+    try:
+        # Hosting dashboards keep whatever was pasted, quotes and stray spaces included; a
+        # password stored as "Aptimizer@123 " can never be typed at the sign-in screen.
+        admin_email = os.environ.get("ADMIN_EMAIL", "admin@aptimizer.com").strip().strip("\"'").strip().lower()
+        admin_password = os.environ.get("ADMIN_PASSWORD", "Aptimizer@123").strip().strip("\"'").strip()
         await db.login_attempts.delete_many({"identifier": {"$regex": f":{re.escape(admin_email)}$"}})
         existing = await db.users.find_one({"email": admin_email})
         if not existing:
@@ -109,8 +116,11 @@ async def lifespan(app: FastAPI):
                 {"$set": {"password_hash": authlib.hash_password(admin_password), "role": "admin"}},
             )
             logger.info("Updated admin credentials for %s", admin_email)
+        # WARNING level so it shows in the host's default log view (Render shows warnings).
+        logger.warning("Admin account ready: %s (password from %s)", admin_email,
+                       "ADMIN_PASSWORD" if os.environ.get("ADMIN_PASSWORD") else "built-in default")
     except Exception as e:
-        logger.warning("Startup index/admin verification encountered issue: %s", e)
+        logger.warning("Startup admin setup FAILED: %s", e)
     yield
     client.close()
 
