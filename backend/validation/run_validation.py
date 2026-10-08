@@ -581,7 +581,7 @@ def write_workbook(out_path, plots, results, run_meta, carried):
             ("Elev mean (m)", lambda p, x: x["elev_mean_m"]), ("Elev min (m)", lambda p, x: x["elev_min_m"]),
             ("Elev max (m)", lambda p, x: x["elev_max_m"]), ("Relief (m)", lambda p, x: x["relief_m"]),
             ("Slope (%)", lambda p, x: x["slope_pct"]), ("Slope class", lambda p, x: x["slope_class"]),
-            ("Seismic zone", lambda p, x: x["seismic_zone"]), ("PGA surface (g)", lambda p, x: x["pga_surface_g"]),
+            ("Seismic zone", lambda p, x: x["seismic_zone"]), ("Surface shaking, screening (g)", lambda p, x: x["pga_surface_g"]),
             ("Wind Vb (m/s)", lambda p, x: x["wind_vb_ms"]), ("Prevailing wind", lambda p, x: x["wind_prevailing"]),
             ("Sunrise 21 Mar", lambda p, x: x["sunrise_mar"]), ("Sunset 21 Mar", lambda p, x: x["sunset_mar"]),
             ("Sunrise 21 Jun", lambda p, x: x["sunrise_jun"]), ("Sunset 21 Jun", lambda p, x: x["sunset_jun"]),

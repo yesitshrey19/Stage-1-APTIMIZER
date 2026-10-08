@@ -45,7 +45,9 @@ EARTH_R = 6371000.0
 #    every campus plot read 0 m from a road.
 # 6: IS 875-3 k2 factors corrected to Table 2 of the 2015 code (terrain 2: 1.00 at 10 m),
 #    and basic wind speeds to Annex A as amended in 2020 (Delhi 50 m/s).
-ANALYSIS_RULES_VERSION = 6
+# 7: IS 1893 PGA reported as Z (Cl. 3.28) with the code's soil spectral ratios 1/1.36/1.67;
+#    liquefaction flagged in every zone; Kd = 1.0 in the cyclone belt (IS 875-3 Cl. 7.2.1).
+ANALYSIS_RULES_VERSION = 7
 
 # A fountain or ornamental pool is tagged natural=water like a lake, and on its own was
 # enough to mark a plot "high" flood risk. Ponds and tanks that matter for drainage are
@@ -785,8 +787,10 @@ def wind_profile(lat, lng, city_ref=None, building_height_m=0):
         k2_open = round(interp(k2_t1), 3)
         k1_risk = 1.0          # general structures, Cl. 6.3.1
         k3 = 1.0               # flat terrain, Cl. 6.3.3
-        k4 = 1.0               # less than 10 m above mean sea level... 1.0 inland
-        kd = 0.90              # wind directionality, Cl. 7.2.1 (buildings)
+        k4 = 1.0               # 'all other structures' incl. housing, Cl. 6.3.4 (1.0 everywhere)
+        # wind directionality, Cl. 7.2.1: 0.90 for buildings, 1.0 in the cyclone belt
+        cyclone = bool(city_ref.get("cyclone_belt"))
+        kd = 1.0 if cyclone else 0.90
         vz_t2 = round(vb * k1_risk * k2 * k3 * k4, 2)
         vz_t1 = round(vb * k1_risk * k2_open * k3 * k4, 2)
         # Cl. 7.2: pz = 0.6 Vz² (N/m²) — wind pressure at height z
@@ -798,7 +802,7 @@ def wind_profile(lat, lng, city_ref=None, building_height_m=0):
             "terrain_category": 2,
             "design_height_m": round(hc, 1),
             "k2_terrain2": k2, "k2_terrain1": k2_open,
-            "kd": kd, "k1": k1_risk, "k3": k3, "k4": k4,
+            "kd": kd, "k1": k1_risk, "k3": k3, "k4": k4, "cyclone_belt": cyclone,
             "design_wind_speed_terrain2_ms": vz_t2,
             "design_wind_speed_terrain1_ms": vz_t1,
             "design_wind_pressure_terrain2_nm2": pz_t2,
@@ -806,7 +810,8 @@ def wind_profile(lat, lng, city_ref=None, building_height_m=0):
             "design_wind_pressure_terrain2_knm2": round(pz_t2 / 1000, 3),
             "note": (f"Vb {vb:.0f} m/s ({city_ref.get('city', 'site')}, IS 875-3 Annex A) → Vz "
                      f"{vz_t2:.1f} m/s at {hc:.0f} m in terrain 2, pz {pz_t2 / 1000:.2f} kN/m². "
-                     "Open coastal/flat sites (terrain 1) see more — structural module carries the check."),
+                     "Open coastal/flat sites (terrain 1) see more — structural module carries the check."
+                     + (" Cyclone belt: Kd = 1.0 (IS 875-3 Cl. 7.2.1)." if cyclone else "")),
         }
 
     return {"region": region, "prevailing": prev, "summer": sm, "winter": wt,
@@ -1096,13 +1101,14 @@ def accessibility(roads, transit, coords, road_edges):
 
 
 # ------------------------------------------------------------------ site seismic hazard
-# IS 1893 (Part 1):2016 Annex E zone factor Z by seismic zone; the zone itself comes from
-# the city reference (BIS zone map). Site class modifies response via the soil factor
-# already used in the engineering module — here it feeds a SITE-level hazard statement:
-# liquefaction potential and the amplification the buildings on this plot will see.
+# IS 1893 (Part 1):2016 Table 3 zone factor Z by seismic zone; the zone itself comes from
+# the city reference (Annex E). Z is the peak ground acceleration the code considers for
+# design (Cl. 3.28). Soil type I/II/III (Table 4) changes the design spectrum (Cl. 6.4.2):
+# the same 2.5 plateau, then 1.00/T, 1.36/T and 1.67/T -- so at longer periods soft soil
+# sees 1.36x / 1.67x the demand of rock. That ratio is the soil factor reported here.
 ZONE_FACTOR = {"II": 0.10, "III": 0.16, "IV": 0.24, "V": 0.36}
 ZONE_LABEL = {"II": "Low damage risk", "III": "Moderate damage risk", "IV": "High damage risk", "V": "Very severe"}
-SOIL_FACTOR = {"I": 1.0, "II": 1.2, "III": 1.5}
+SOIL_FACTOR = {"I": 1.0, "II": 1.36, "III": 1.67}
 LIQUEFACTION_SOILS = {"loose sand", "medium sand"}
 
 
@@ -1117,34 +1123,38 @@ def seismic_hazard(city_ref, terrain, soil_type="medium clay"):
     zone = city_ref.get("zone") or "III"
     z = ZONE_FACTOR.get(zone, 0.16)
     site_class = {"I": "I", "II": "II", "III": "III"}.get(str(soil_type_class(soil_type)), "II")
-    s_factor = SOIL_FACTOR.get(site_class, 1.2)
+    s_factor = SOIL_FACTOR.get(site_class, 1.36)
     slope = terrain.get("avg_slope_pct") if terrain.get("available") else None
 
     # Slope stability: steep slopes in zone IV/V need slope-stability review before
-    # siting tall blocks (IS 1893 Cl. 6.3.5 guidance on geotechnical investigation).
+    # siting tall blocks. Thresholds are Aptimizer's own screening values; IS 1893 has no
+    # slope clause (Cl. 6.3.5 is about bearing pressure on soils).
     slope_flag = None
     if slope is not None and zone in ("IV", "V") and slope >= 10:
         slope_flag = ("critical", f"Average slope {slope}% in seismic zone {zone} — slope stability "
                       "analysis required before siting buildings near the boundary")
     elif slope is not None and zone in ("IV", "V") and slope >= 5:
         slope_flag = ("warning", f"Slope {slope}% in zone {zone} — geotechnical investigation "
-                      "should confirm stability under seismic loading (IS 1893 Cl. 6.3.5)")
+                      "should confirm stability under seismic loading (Aptimizer screening check)")
 
-    # Liquefaction: loose/medium sands below water table shake to a liquid. Without bore
-    # data this is a flag to investigate, not a verdict.
-    liq_risk = soil_type.lower() in LIQUEFACTION_SOILS and zone in ("III", "IV", "V")
+    # Liquefaction: IS 1893 Cl. 6.3.5.3 -- submerged loose sands (SP) with corrected N below
+    # 15 in zones III-V and below 10 in zone II. Without bore data this is a flag to
+    # investigate, not a verdict, so it is raised in every zone for sandy soil.
+    liq_risk = soil_type.lower() in LIQUEFACTION_SOILS
 
-    # Expected PGA on rock (IS 1893 Table 2, Z/2 as effective peak) and at surface with
-    # the soil amplification — the number a non-engineer can compare across cities.
-    pga_rock_g = round(z / 2.0, 3)
-    pga_surface_g = round(min(z / 2.0 * s_factor, 0.5), 3)
+    # PGA = Z (IS 1893 Cl. 3.28). The surface figure is a SCREENING estimate, Z x the soil
+    # spectral ratio above -- the number a non-engineer can compare across sites. Design
+    # uses Ah = (Z/2)(I/R)(Sa/g) in the engineering module, not this.
+    pga_rock_g = round(z, 3)
+    pga_surface_g = round(z * s_factor, 3)
 
     risks = []
     if liq_risk:
         risks.append({"id": "liquefaction", "severity": "critical",
                       "title": "Liquefaction-susceptible soil in a seismic zone",
-                      "detail": f"{soil_type.title()} in zone {zone} can lose strength during shaking. "
-                                "Ground improvement (stone columns / compaction piles) or deep piles to "
+                      "detail": f"{soil_type.title()} in zone {zone} can lose strength during shaking "
+                                f"if submerged and loose (corrected N < {10 if zone == 'II' else 15}, "
+                                "IS 1893 Cl. 6.3.5.3). Confirm with bore data. If confirmed: ground improvement (stone columns / compaction piles) or deep piles to "
                                 "competent strata before foundations are designed."})
     if slope_flag:
         sev, msg = slope_flag
@@ -1173,7 +1183,8 @@ def seismic_hazard(city_ref, terrain, soil_type="medium clay"):
         "liquefaction_risk": liq_risk,
         "risk_flags": risks,
         "guidance": (f"Zone {zone} ({ZONE_LABEL.get(zone, '')}), site class {site_class}: structures here "
-                     f"see up to {pga_surface_g:.2f} g at the surface. {len([r for r in risks if r['severity'] == 'critical'])} "
+                     f"see a screening surface shaking of about {pga_surface_g:.2f} g (PGA Z = {z:.2f} g, "
+                     f"IS 1893). {len([r for r in risks if r['severity'] == 'critical'])} "
                      "critical item(s) flagged."),
     }
 

@@ -190,7 +190,18 @@ LIVE_LOADS = {  # kN/m²
 
 # ---------------------------------------------------------------- IS 875 Part 3
 WIND_K2 = [(10, 1.00), (15, 1.05), (20, 1.07), (30, 1.12), (50, 1.17), (100, 1.24), (150, 1.28), (200, 1.30)]
-WIND_KD = 0.90  # Cl. 7.2.1 wind directionality
+WIND_KD = 0.90  # Cl. 7.2.1 wind directionality (buildings); 1.0 in cyclone-affected regions
+
+# IS 875 (Part 3):2015 Cl. 7.2.1: "For the cyclone affected regions also the factor Kd shall be
+# taken as 1.0". The cyclone-affected belt is the ~60 km strip along the east coast and the
+# Gujarat coast (Cl. 6.3.4). Cities in the reference table whose centre lies inside that belt;
+# a site near the 60 km line should be checked against its actual distance from the coast.
+CYCLONE_BELT_CITIES = {"Chennai", "Puducherry", "Visakhapatnam", "Bhubaneswar", "Surat", "Bhuj"}
+
+
+def wind_kd(city):
+    """Wind directionality factor Kd for a city (IS 875-3 Cl. 7.2.1)."""
+    return 1.0 if (city or "").strip().title() in CYCLONE_BELT_CITIES else WIND_KD
 WIND_KA = 0.90  # Cl. 7.2.2 / Table 4 area averaging: 0.90 is the 25 m² value, kept conservatively
                 # (Table 4 allows 0.80 at 100 m² and above, subject to Kd·Ka·Kc >= 0.70).
 WIND_KC = 0.90  # Cl. 7.3.3.13 combination factor
@@ -713,7 +724,8 @@ def city_reference(city, state=""):
     if key in CITIES:
         st, zone, wind, rain, intensity = CITIES[key]
         return {"city": key, "state": st, "zone": zone, "wind_speed": wind,
-                "annual_rainfall_mm": rain, "rain_intensity_mm_hr": intensity, "source": "city"}
+                "annual_rainfall_mm": rain, "rain_intensity_mm_hr": intensity, "source": "city",
+                "cyclone_belt": key in CYCLONE_BELT_CITIES}
     st = (state or "").strip().title()
     if st in STATE_FALLBACK:
         zone, wind, rain, intensity = STATE_FALLBACK[st]

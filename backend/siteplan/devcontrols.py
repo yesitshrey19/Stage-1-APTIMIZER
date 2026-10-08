@@ -32,14 +32,19 @@ HEIGHT_OPEN_SPACE = [
 HEIGHT_OPEN_SPACE_MAX = 20.0    # Table 4 Sl xv: above 120 m
 
 # Plot-size based minimum front setback, applied when it exceeds the height-driven figure.
+# APTIMIZER ASSUMPTION, not an NBC clause: NBC 2016 Part 3 sets the front open space by
+# street width (Cl. 8.2.1.1) and, above 10 m, by Cl. 9.4.1. This conservative plot-size
+# floor stands in until the local bye-law table (BDA RMP-2015) is entered.
 # (plot area in m2 up to, front setback in metres)
 PLOT_FRONT_SETBACK = [
     (250.0, 3.0), (500.0, 4.5), (1000.0, 6.0), (2500.0, 9.0), (float("inf"), 12.0),
 ]
 
-# Height is commonly capped at 1.5 x (abutting road width + front setback). A plot with no
-# adequate road frontage cannot support a tall building however large it is.
+# NBC 2016 Part 3 Cl. 9.4.1(a): the height of a building shall not exceed 1.5 x the width of
+# the abutting road plus the front open space, the front open space counted up to 16 m.
+# A plot with no adequate road frontage cannot support a tall building however large it is.
 HEIGHT_ROAD_MULTIPLIER = 1.5
+FRONT_OPEN_SPACE_CAP_M = 16.0
 # NBC 2016 Part 3 Cl. 4.6(a): a high-rise building (15 m and above, Part 4 Cl. 2.38) needs a
 # main street of at least 12 m, one end of which joins another street of at least 12 m.
 MIN_ROAD_FOR_HIGHRISE = 12.0
@@ -73,7 +78,7 @@ def front_setback_for_plot(plot_area: float) -> float:
 def max_height_from_road(road_width: float, front_setback: float) -> float:
     if road_width <= 0:
         return 0.0
-    return HEIGHT_ROAD_MULTIPLIER * (road_width + front_setback)
+    return HEIGHT_ROAD_MULTIPLIER * road_width + min(max(front_setback, 0.0), FRONT_OPEN_SPACE_CAP_M)
 
 
 def setback_minimums(plot_area: float, road_width: float = 0.0,
@@ -98,9 +103,9 @@ def setback_minimums(plot_area: float, road_width: float = 0.0,
     out = {
         "front": {
             "minimum_m": round(front, 2),
-            "rule": (f"NBC 2016 Part 3 — {front_rule}: "
-                     f"{by_plot} m for a {plot_area:,.0f} m2 plot, "
-                     f"{by_height} m for {height_m:g} m of height; the larger governs"),
+            "rule": (f"Governed by {front_rule}: {by_plot} m for a {plot_area:,.0f} m2 plot "
+                     f"(Aptimizer assumption), {by_height} m for {height_m:g} m of height "
+                     f"(NBC 2016 Part 3 Table 4); the larger governs"),
             "clause": "NBC 2016 Part 3, Cl. 8",
         },
         "rear": {
@@ -221,12 +226,18 @@ def recommend(plot_area: float,
     road_cap = max_height_from_road(road_width, front) if road_width else 0.0
     height_capped_by_road = bool(road_cap and height > road_cap)
     if height_capped_by_road:
-        height = road_cap
         # Open space is a function of the height actually built. Leaving the setback at
         # the pre-cap figure demands a deeper margin than the capped building needs, and
-        # on a small plot that difference swallows the whole buildable width.
-        side = open_space_for_height(height)
-        front = max(front_setback_for_plot(plot_area), side)
+        # on a small plot that difference swallows the whole buildable width. A lower
+        # building needs a shallower front, which lowers the road cap again (the front
+        # open space is part of it), so step down until height and front agree.
+        for _ in range(20):
+            height = road_cap
+            side = open_space_for_height(height)
+            front = max(front_setback_for_plot(plot_area), side)
+            road_cap = max_height_from_road(road_width, front)
+            if height <= road_cap + 1e-9:
+                break
 
     floors = max(int(height // floor_height), 1)
 
@@ -240,8 +251,9 @@ def recommend(plot_area: float,
 
     items: List[Recommendation] = [
         Recommendation("front_setback", "Front setback", round(front, 1), "m",
-                       "NBC 2016 Part 3 — exterior open space", "code",
-                       note="Greater of the plot-size minimum and the height-driven open space."),
+                       "NBC 2016 Part 3 Table 4 / Aptimizer plot-size assumption", "code",
+                       note="Greater of the plot-size minimum (Aptimizer assumption, not an NBC "
+                            "clause) and the height-driven open space (NBC Table 4)."),
         Recommendation("side_setback", "Side setback", round(side, 1), "m",
                        "NBC 2016 Part 3 Table — open space by building height", "code",
                        note=f"Driven by a building height of {height:.1f} m."),

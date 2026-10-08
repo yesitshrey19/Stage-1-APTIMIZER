@@ -345,8 +345,8 @@ export default function GisModule({ project, projectId, readOnly, setProject }) 
                   <Metric label="Zone" value={`${gis.seismic.zone} — ${gis.seismic.zone_label || ""}`} testid="seismic-zone" />
                   <Metric label="Site class" value={gis.seismic.site_class} unit={`soil factor ${gis.seismic.soil_factor}`}
                     testid="seismic-site-class" />
-                  <Metric label="PGA (rock)" value={gis.seismic.pga_rock_g} unit="g" testid="seismic-pga-rock" />
-                  <Metric label="PGA (surface)" value={gis.seismic.pga_surface_g} unit="g"
+                  <Metric label="PGA, Z (IS 1893)" value={gis.seismic.pga_rock_g} unit="g" testid="seismic-pga-rock" />
+                  <Metric label="Surface shaking (screening)" value={gis.seismic.pga_surface_g} unit="g"
                     tone={gis.seismic.pga_surface_g >= 0.24 ? "danger" : "default"} testid="seismic-pga-surface" />
                 </div>
                 <ul className="space-y-2 mt-3">

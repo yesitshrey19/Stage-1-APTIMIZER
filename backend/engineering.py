@@ -167,7 +167,7 @@ def m1_structural_loads(project, base, e, city):
     k3 = float(e.get("wind_k3") or 1.0)
     vz = vb * k1 * k2 * k3
     pz_raw = 0.6 * vz ** 2 / 1000.0  # kN/m²
-    pd_raw = pz_raw * C.WIND_KD * C.WIND_KA * C.WIND_KC
+    pd_raw = pz_raw * C.wind_kd(city.get("city")) * C.WIND_KA * C.WIND_KC
     pz = round(pz_raw, 3)
     pd = round(pd_raw, 3)
 
@@ -267,7 +267,8 @@ def _tower_loads(t, e, city, factored_raw, trib, dead, live, pd):
     k1 = float(e.get("wind_k1") or 1.0)
     k2 = next((v for h, v in C.WIND_K2 if t["height_m"] <= h), C.WIND_K2[-1][1])
     k3 = float(e.get("wind_k3") or 1.0)
-    pd_t_raw = 0.6 * (city["wind_speed"] * k1 * k2 * k3) ** 2 / 1000.0 * C.WIND_KD * C.WIND_KA * C.WIND_KC
+    pd_t_raw = (0.6 * (city["wind_speed"] * k1 * k2 * k3) ** 2 / 1000.0
+                * C.wind_kd(city.get("city")) * C.WIND_KA * C.WIND_KC)
     pd_t = round(pd_t_raw, 3)
     face = math.sqrt(max(t["footprint_sqm"], 1)) if t["footprint_sqm"] else 0
     cf_t = C.wind_force_coefficient(1.0, (t["height_m"] / face) if face else 1.0)

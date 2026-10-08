@@ -827,9 +827,11 @@ def autonomous_compliance_audit(project: Dict[str, Any]) -> Dict[str, Any]:
                            "remediation": None if ok else f"Increase the {key} setback to at least {need} m."})
     if road_w > 0:
         front = provided("front") or 0.0
-        limit = 1.5 * (road_w + front)
+        # NBC 2016 Part 3 Cl. 9.4.1(a): 1.5 x road width + front open space (counted up to 16 m)
+        limit = 1.5 * road_w + min(max(front, 0.0), 16.0)
         ok = height_m <= limit + 1e-9
-        checks.append({"id": "height_road_check", "rule": "Building Height vs Road Width", "clause": "NBC 2016 Part 3",
+        checks.append({"id": "height_road_check", "rule": "Building Height vs Road Width",
+                       "clause": "NBC 2016 Part 3, Cl. 9.4.1(a)",
                        "permissible": round(limit, 1), "achieved": round(height_m, 1), "unit": "metres",
                        "status": "pass" if ok else "fail", "margin": round(limit - height_m, 1),
                        "remediation": None if ok else "Increase the front setback or reduce the tower height."})

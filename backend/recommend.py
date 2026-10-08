@@ -111,7 +111,7 @@ def build(project: Dict[str, Any], an: Dict[str, Any], eng: Dict[str, Any] = Non
                     "gis", flag["title"],
                     flag["detail"],
                     f"IS 1893 zone {seis.get('zone')} — site class {seis.get('site_class')}, "
-                    f"surface PGA {seis.get('pga_surface_g')} g.",
+                    f"screening surface shaking {seis.get('pga_surface_g')} g (PGA Z {seis.get('zone_factor_z')} g).",
                     impact="critical" if flag["severity"] == "critical" else "medium",
                     effort=3, anchor="gis-seismic-section"))
         suit = gis.get("suitability") or {}

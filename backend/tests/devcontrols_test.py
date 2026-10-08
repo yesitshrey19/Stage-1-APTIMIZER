@@ -51,7 +51,8 @@ def test_front_setback_grows_with_plot_size():
 
 # ---------------------------------------------------------------- height vs road
 def test_height_is_limited_by_road_width():
-    assert max_height_from_road(12.0, 6.0) == pytest.approx(1.5 * 18.0)
+    assert max_height_from_road(12.0, 6.0) == pytest.approx(1.5 * 12.0 + 6.0)   # NBC Cl. 9.4.1(a)
+    assert max_height_from_road(12.0, 20.0) == pytest.approx(1.5 * 12.0 + 16.0)  # front counted up to 16 m
 
 
 def test_no_road_means_no_derivable_cap():
@@ -87,7 +88,7 @@ def test_setback_is_recomputed_after_the_road_cap():
 
 
 def test_unbuildable_setback_regime_is_flagged():
-    r = recommend(plot_area=1200, road_width=9, city="Bengaluru")
+    r = recommend(plot_area=600, road_width=9, city="Bengaluru")
     assert any("too narrow" in w for w in r["warnings"])
 
 
@@ -152,3 +153,11 @@ def test_explicit_far_override_is_not_flagged_for_verification():
 def test_disclaimer_is_always_present():
     r = recommend(plot_area=5000, road_width=18, city="Bengaluru")
     assert "verified" in r["disclaimer"].lower()
+
+
+def test_road_cap_and_front_setback_agree():
+    """NBC Cl. 9.4.1(a) counts the front open space in the cap, and the front open space
+    depends on the height -- the recommended pair must satisfy the rule together."""
+    for area, road in ((400, 9), (1200, 9), (8000, 9), (8000, 24)):
+        r = recommend(plot_area=area, road_width=road, city="Bengaluru")
+        assert r["height_m"] <= max_height_from_road(road, r["setbacks"]["front"]) + 0.1
