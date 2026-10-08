@@ -5,7 +5,10 @@ All functions read the plot polygon already stored on the project document
 (project["plot"]["coordinates"]) — there is no separate plot model here.
 """
 import asyncio
+import datetime as _dt
+import logging
 import math
+import re
 from datetime import datetime, timezone
 
 import requests
@@ -25,6 +28,7 @@ ELEVATION_URL = "https://api.open-elevation.com/api/v1/lookup"
 OPEN_METEO_ELEVATION_URL = "https://api.open-meteo.com/v1/elevation"
 OVERPASS_TIMEOUT_S = 25
 ELEVATION_TIMEOUT_S = 12
+logger = logging.getLogger(__name__)
 EARTH_R = 6371000.0
 
 # The rules that turn raw OSM and elevation data into what is on screen: which tags count
@@ -48,7 +52,11 @@ EARTH_R = 6371000.0
 # 7: IS 1893 PGA reported as Z (Cl. 3.28) with the code's soil spectral ratios 1/1.36/1.67;
 #    liquefaction flagged in every zone; Kd = 1.0 in the cyclone belt (IS 875-3 Cl. 7.2.1).
 # 8: plinth guidance cites NBC Part 3 Cl. 12.1.1 (the 'Part 9 Table 4' citation was wrong).
-ANALYSIS_RULES_VERSION = 8
+# 9: sun times from the full NOAA algorithm (to the second); drain-like canals (culverts,
+#    named drains/nalas, <= 5 m wide) are storm drains, not water bodies.
+# 10: site climate (monthly irradiation, optimal-tilt gain, 10 m wind) from NASA POWER, with
+#     the clear-sky model and regional wind table as the fallback.
+ANALYSIS_RULES_VERSION = 10
 
 # A fountain or ornamental pool is tagged natural=water like a lake, and on its own was
 # enough to mark a plot "high" flood risk. Ponds and tanks that matter for drainage are
@@ -209,12 +217,36 @@ ENGINEERED_WATER_TYPES = {"wastewater", "sewage", "sewer", "drain", "ditch",
 SEWAGE_TYPES = {"wastewater", "sewage", "sewer"}
 
 
+# Indian city storm drains are often mapped as waterway=canal. A "canal" that runs in a
+# culvert, is named as a drain (drain / nala / nallah / storm water), or is no wider than a
+# street drain is treated as the storm drain it is -- in validation a culvert named "drain
+# path" had been reported as a water body 12.6 m from a Chennai plot.
+_DRAIN_NAME = re.compile(r"\b(drain|drainage|nala|nalla|nallah|nullah|storm\s*water|sewer)\b", re.I)
+DRAIN_CANAL_MAX_WIDTH_M = 5.0
+
+
+def _drain_like_canal(tags):
+    if str(tags.get("waterway") or "").lower() != "canal":
+        return False
+    if str(tags.get("tunnel") or "").lower() in {"culvert", "yes", "flooded"}:
+        return True
+    if _DRAIN_NAME.search(str(tags.get("name") or "")):
+        return True
+    try:
+        width = float(str(tags.get("width") or "").split()[0])
+    except (ValueError, IndexError):
+        return False
+    return width <= DRAIN_CANAL_MAX_WIDTH_M
+
+
 def _is_storm_drain(tags):
     waterway = str(tags.get("waterway") or "").lower()
     water = str(tags.get("water") or "").lower()
     if waterway in SEWAGE_TYPES or water in SEWAGE_TYPES or tags.get("usage") == "sewage":
         return False
-    return waterway in {"drain", "ditch", "storm_drain"} or water in {"drain", "ditch", "stormwater", "storm_water"}
+    return (waterway in {"drain", "ditch", "storm_drain"}
+            or water in {"drain", "ditch", "stormwater", "storm_water"}
+            or _drain_like_canal(tags))
 
 
 def _is_engineered_water(tags):
@@ -763,7 +795,7 @@ WIND_REGIONS = [
 ]
 
 
-def wind_profile(lat, lng, city_ref=None, building_height_m=0):
+def wind_profile(lat, lng, city_ref=None, building_height_m=0, climate=None):
     for a, b, c, d, label, prevailing, summer, winter, speed in WIND_REGIONS:
         if a <= lat <= b and c <= lng <= d:
             region, prev, sm, wt, sp = label, prevailing, summer, winter, speed
@@ -831,8 +863,13 @@ def wind_profile(lat, lng, city_ref=None, building_height_m=0):
                      + (" Cyclone belt: Kd = 1.0 (IS 875-3 Cl. 7.2.1)." if cyclone else "")),
         }
 
+    # Site mean wind from NASA POWER's 10 m climatology when available; the regional
+    # figure above is the fallback and still supplies the prevailing directions.
+    nasa_ws = (climate or {}).get("wind_10m_ms")
     return {"region": region, "prevailing": prev, "summer": sm, "winter": wt,
-            "mean_speed_ms": sp,
+            "mean_speed_ms": round(nasa_ws, 1) if nasa_ws is not None else sp,
+            "mean_speed_source": "NASA POWER WS10M climatology" if nasa_ws is not None
+            else "regional table (NASA POWER unavailable)",
             "rose": [{"direction": k, "frequency_pct": v} for k, v in rose.items()],
             "guidance": f"Orient living-room and balcony openings toward {sm.split()[0]} for monsoon cross-ventilation; "
                         f"shelter service cores on the {wt} face.",
@@ -863,14 +900,40 @@ def utc_offset_hours(lat, lng):
     return float(round(lng / 15.0))
 
 
+def _julian_day(doy, hour_utc, year=None):
+    """Julian day for day-of-year `doy` (1 = 1 Jan) of `year` at `hour_utc`."""
+    year = year or _dt.date.today().year
+    d = _dt.date(year, 1, 1) + _dt.timedelta(days=doy - 1)
+    return d.toordinal() + 1721424.5 + hour_utc / 24.0
+
+
+def _solar_terms(jd):
+    """Declination (rad) and equation of time (min) -- the full NOAA algorithm (Meeus), the
+    one behind the NOAA Solar Calculator. The short Fourier series used before was only good
+    to about a minute; this agrees with the calculator to a few seconds."""
+    t = (jd - 2451545.0) / 36525.0
+    l0 = (280.46646 + t * (36000.76983 + t * 0.0003032)) % 360.0
+    m = 357.52911 + t * (35999.05029 - 0.0001537 * t)
+    e = 0.016708634 - t * (0.000042037 + 0.0000001267 * t)
+    mr = math.radians(m)
+    c = (math.sin(mr) * (1.914602 - t * (0.004817 + 0.000014 * t))
+         + math.sin(2 * mr) * (0.019993 - 0.000101 * t) + math.sin(3 * mr) * 0.000289)
+    omega = math.radians(125.04 - 1934.136 * t)
+    app_long = math.radians(l0 + c - 0.00569 - 0.00478 * math.sin(omega))
+    obliq0 = 23 + (26 + (21.448 - t * (46.815 + t * (0.00059 - t * 0.001813))) / 60) / 60
+    obliq = math.radians(obliq0 + 0.00256 * math.cos(omega))
+    decl = math.asin(math.sin(obliq) * math.sin(app_long))
+    y = math.tan(obliq / 2) ** 2
+    l0r = math.radians(l0)
+    eqtime = 4 * math.degrees(y * math.sin(2 * l0r) - 2 * e * math.sin(mr)
+                              + 4 * e * y * math.sin(mr) * math.cos(2 * l0r)
+                              - 0.5 * y * y * math.sin(4 * l0r) - 1.25 * e * e * math.sin(2 * mr))
+    return decl, eqtime
+
+
 def solar_position(lat, lng, doy, hour_local):
     tz_offset = utc_offset_hours(lat, lng)
-    gamma = 2 * math.pi / 365.0 * (doy - 1 + (hour_local - 12) / 24.0)
-    eqtime = 229.18 * (0.000075 + 0.001868 * math.cos(gamma) - 0.032077 * math.sin(gamma)
-                       - 0.014615 * math.cos(2 * gamma) - 0.040849 * math.sin(2 * gamma))
-    decl = (0.006918 - 0.399912 * math.cos(gamma) + 0.070257 * math.sin(gamma)
-            - 0.006758 * math.cos(2 * gamma) + 0.000907 * math.sin(2 * gamma)
-            - 0.002697 * math.cos(3 * gamma) + 0.00148 * math.sin(3 * gamma))
+    decl, eqtime = _solar_terms(_julian_day(doy, hour_local - tz_offset))
     time_offset = eqtime + 4 * lng - 60 * tz_offset
     tst = hour_local * 60 + time_offset
     ha = math.radians(tst / 4.0 - 180.0)
@@ -897,25 +960,32 @@ def sun_events(lat, lng, doy):
 
     Solved from the sunrise hour angle rather than read off the 30-minute sampling grid
     used to draw the path, which could only ever be right to the nearest half hour.
-    Includes the standard -0.833 deg refraction/semi-diameter correction.
+    Includes the standard -0.833 deg refraction/semi-diameter correction. The sun's
+    declination and the equation of time are evaluated at the event itself (two passes),
+    as the NOAA calculator does, not once for the whole day.
     """
-    gamma = 2 * math.pi / 365.0 * (doy - 1)
-    eqtime = 229.18 * (0.000075 + 0.001868 * math.cos(gamma) - 0.032077 * math.sin(gamma)
-                       - 0.014615 * math.cos(2 * gamma) - 0.040849 * math.sin(2 * gamma))
-    decl = (0.006918 - 0.399912 * math.cos(gamma) + 0.070257 * math.sin(gamma)
-            - 0.006758 * math.cos(2 * gamma) + 0.000907 * math.sin(2 * gamma)
-            - 0.002697 * math.cos(3 * gamma) + 0.00148 * math.sin(3 * gamma))
-    latr = math.radians(lat)
-    cos_ha = ((math.cos(math.radians(90.833)) / (math.cos(latr) * math.cos(decl)))
-              - math.tan(latr) * math.tan(decl))
     tz = utc_offset_hours(lat, lng)
-    if cos_ha > 1:      # sun never rises
+    latr = math.radians(lat)
+
+    def event(sign, guess_hour):
+        hour = guess_hour
+        for _ in range(2):
+            decl, eqtime = _solar_terms(_julian_day(doy, hour - tz))
+            cos_ha = ((math.cos(math.radians(90.833)) / (math.cos(latr) * math.cos(decl)))
+                      - math.tan(latr) * math.tan(decl))
+            if cos_ha > 1:
+                return "never_rises"
+            if cos_ha < -1:
+                return "never_sets"
+            ha = math.degrees(math.acos(cos_ha))
+            hour = (720 - 4 * (lng + sign * ha) - eqtime) / 60.0 + tz
+        return hour
+
+    rise, seti = event(1, 6.0), event(-1, 18.0)
+    if "never_rises" in (rise, seti):
         return {"sunrise_hour": None, "sunset_hour": None, "daylight_hours": 0.0}
-    if cos_ha < -1:     # sun never sets
+    if "never_sets" in (rise, seti):
         return {"sunrise_hour": None, "sunset_hour": None, "daylight_hours": 24.0}
-    ha = math.degrees(math.acos(cos_ha))
-    rise = (720 - 4 * (lng + ha) - eqtime) / 60.0 + tz
-    seti = (720 - 4 * (lng - ha) - eqtime) / 60.0 + tz
     return {"sunrise_hour": round(rise, 4), "sunset_hour": round(seti, 4),
             "daylight_hours": round(seti - rise, 2)}
 
@@ -982,7 +1052,56 @@ _MONTH_DOY = [15, 46, 74, 105, 135, 166, 196, 227, 258, 288, 319, 349]
 _MONTH_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
 
 
-def annual_insolation(lat, lng):
+NASA_POWER_URL = "https://power.larc.nasa.gov/api/temporal/climatology/point"
+NASA_TIMEOUT_S = 10
+_MONTHS = ("JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC")
+
+
+def fetch_climate(lat, lng):
+    """Long-term site climatology from NASA POWER (satellite + reanalysis, ~0.5 deg grid):
+    daily global horizontal irradiation by month, the gain an optimally tilted panel gets
+    over a flat one, and the mean wind speed at 10 m. Cached on disk like the map data;
+    None when the service cannot be reached, and the callers fall back to the built-in
+    clear-sky model and regional wind table."""
+    key = f"nasa-power:{lat:.3f},{lng:.3f}"
+    cached = _cache_read(key)
+    if cached:
+        return cached
+    try:
+        r = _http.get(NASA_POWER_URL, timeout=NASA_TIMEOUT_S, params={
+            "parameters": "ALLSKY_SFC_SW_DWN,SI_EF_TILTED_SURFACE,WS10M", "community": "RE",
+            "latitude": round(lat, 4), "longitude": round(lng, 4), "format": "JSON"})
+        if r.status_code != 200:
+            return None
+        p = r.json()["properties"]["parameter"]
+        ghi = p["ALLSKY_SFC_SW_DWN"]
+        monthly = [float(ghi[m]) for m in _MONTHS]
+        if any(v is None or v < 0 for v in monthly):        # -999 marks missing data
+            return None
+        def ann(name):                       # annual value of a monthly table, or None
+            v = (p.get(name) or {}).get("ANN")
+            try:
+                v = float(v)
+            except (TypeError, ValueError):
+                return None
+            return v if v >= 0 else None     # -999 marks missing data
+
+        flat, best = ann("SI_TILTED_AVG_HORIZONTAL"), ann("SI_TILTED_AVG_OPTIMAL")
+        tilt_gain = best / flat if flat and best else 1.0
+        ws = ann("WS10M")
+        out = {"source": "NASA POWER climatology", "ghi_monthly_kwh_day": monthly,
+               "ghi_annual_kwh_day": float(ghi["ANN"]),
+               "tilt_gain": round(max(1.0, min(tilt_gain, 1.25)), 4),
+               "optimal_tilt_deg": ann("SI_TILTED_AVG_OPTIMAL_ANG"),
+               "wind_10m_ms": ws}
+        _cache_write(key, out)
+        return out
+    except Exception as exc:
+        logger.warning("NASA POWER climatology unavailable for %.3f,%.3f: %s", lat, lng, exc)
+        return None
+
+
+def annual_insolation(lat, lng, climate=None):
     """Annual global horizontal irradiation, kWh/m2/yr, from the same solar geometry the
     sun path uses.
 
@@ -990,6 +1109,15 @@ def annual_insolation(lat, lng):
     declination barely moves within a month, so the extra 700-odd position calls buy
     nothing a rooftop estimate can use.
     """
+    if climate and climate.get("ghi_monthly_kwh_day"):
+        monthly = [{"days": days, "kwh_per_sqm_day": round(v, 2), "kwh_per_sqm_month": round(v * days, 1)}
+                   for v, days in zip(climate["ghi_monthly_kwh_day"], _MONTH_DAYS)]
+        annual = sum(m["kwh_per_sqm_month"] for m in monthly)
+        return {"annual_kwh_per_sqm": round(annual, 1),
+                "daily_average_kwh_per_sqm": round(annual / 365.0, 2),
+                "monthly": monthly, "source": climate.get("source"),
+                "tilt_gain": climate.get("tilt_gain", 1.0),
+                "optimal_tilt_deg": climate.get("optimal_tilt_deg")}
     monthly = []
     for doy, days in zip(_MONTH_DOY, _MONTH_DAYS):
         wh = 0.0
@@ -1008,10 +1136,11 @@ def annual_insolation(lat, lng):
     annual = sum(m["kwh_per_sqm_month"] for m in monthly)
     return {"annual_kwh_per_sqm": round(annual, 1),
             "daily_average_kwh_per_sqm": round(annual / 365.0, 2),
-            "monthly": monthly}
+            "monthly": monthly, "source": "clear-sky model (NASA POWER unavailable)",
+            "tilt_gain": 1.0, "optimal_tilt_deg": None}
 
 
-def solar_potential(lat, lng, roof_area_sqm, config=None):
+def solar_potential(lat, lng, roof_area_sqm, config=None, climate=None):
     """Installable rooftop PV, annual yield and simple payback.
 
     Payback is against the tariff the generation displaces, undiscounted, and ignores any
@@ -1019,13 +1148,16 @@ def solar_potential(lat, lng, roof_area_sqm, config=None):
     from the project data.
     """
     cfg = {**SOLAR_DEFAULTS, **{k: v for k, v in (config or {}).items() if v is not None}}
-    ins = annual_insolation(lat, lng)
+    ins = annual_insolation(lat, lng, climate)
     roof = max(float(roof_area_sqm or 0), 0.0)
     usable = roof * cfg["roof_usable_pct"] / 100.0
     kwp = usable / cfg["sqm_per_kwp"] if cfg["sqm_per_kwp"] else 0.0
     # A 1 kWp array is rated at 1000 W/m2, so annual yield is simply the site's kWh/m2
     # times the rating times the performance ratio.
-    yield_kwh = kwp * ins["annual_kwh_per_sqm"] * cfg["performance_ratio"]
+    # Panels are mounted at the optimum tilt, which collects more than a flat surface; the
+    # gain is NASA POWER's own optimal-tilt / horizontal ratio for the site (1.0 when the
+    # built-in model is in use, which already runs a little high).
+    yield_kwh = kwp * ins["annual_kwh_per_sqm"] * ins.get("tilt_gain", 1.0) * cfg["performance_ratio"]
     capex = kwp * cfg["cost_per_kwp"]
     saving = yield_kwh * cfg["tariff_per_kwh"]
     payback = (capex / saving) if saving > 0 else None
@@ -1317,9 +1449,10 @@ async def analyse_site(project, radius_m=500):
     radius_m = max(100, min(int(radius_m or 500), 2000))
     c = centroid(coords)
 
-    (features, ov_status), (terrain, el_status) = await asyncio.gather(
+    (features, ov_status), (terrain, el_status), climate = await asyncio.gather(
         asyncio.to_thread(fetch_overpass, coords, radius_m),
         asyncio.to_thread(terrain_analysis, coords),
+        asyncio.to_thread(fetch_climate, round(c[0], 4), round(c[1], 4)),
     )
     # The public mirrors rate-limit bursts; one short pause and a second race usually gets
     # an answer, and a result missing every road and lake is worse than a slower one.
@@ -1334,7 +1467,7 @@ async def analyse_site(project, radius_m=500):
     # footprint, one storey up.
     roof_sqm = sum(float(t.get("footprint_area") or 0) for t in (project.get("towers") or []))
     solar = solar_potential(round(c[0], 6), round(c[1], 6), roof_sqm,
-                            (project.get("solar") or {}))
+                            (project.get("solar") or {}), climate)
     # The city reference carries the IS 1893 zone and IS 875-3 Vb for this location, so
     # the GIS hazard screens and the structural module always quote the same clause data.
     city_ref = iscodes.city_reference(project.get("location") or "")
@@ -1343,7 +1476,7 @@ async def analyse_site(project, radius_m=500):
     max_height = max_floors * floor_h if max_floors else 0
     soil = (project.get("engineering") or {}).get("soil_type") or "medium clay"
     seismic = seismic_hazard(city_ref, terrain, soil)
-    wind = wind_profile(c[0], c[1], city_ref, max_height)
+    wind = wind_profile(c[0], c[1], city_ref, max_height, climate)
     suit = suitability(terrain, flood, access, sun, seismic, wind)
     build = buildability(terrain, flood, access, features)
     # Seismic flags are buildability flags too — a liquefaction-susceptible site is as

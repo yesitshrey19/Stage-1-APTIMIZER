@@ -400,7 +400,8 @@ export default function GisModule({ project, projectId, readOnly, setProject }) 
                   <span className="font-semibold text-slate-700">
                     {num(gis.solar.insolation.annual_kwh_per_sqm, 0)} kWh/m² a year
                   </span>{" "}
-                  ({num(gis.solar.insolation.daily_average_kwh_per_sqm, 1)} a day), giving{" "}
+                  ({num(gis.solar.insolation.daily_average_kwh_per_sqm, 1)} a day
+                  {gis.solar.insolation.source ? `, ${gis.solar.insolation.source}` : ""}), giving{" "}
                   {int(gis.solar.specific_yield_kwh_per_kwp)} kWh per kWp installed. Payback is
                   against a ₹{gis.solar.config.tariff_per_kwh}/kWh tariff and ignores any subsidy or
                   export price, both of which vary by state. Avoids about{" "}
@@ -427,7 +428,8 @@ export default function GisModule({ project, projectId, readOnly, setProject }) 
               <div className="grid grid-cols-3 gap-3 mt-2">
                 <Metric label="Prevailing" value={gis.wind.prevailing} testid="wind-prevailing" />
                 <Metric label="Summer" value={gis.wind.summer} testid="wind-summer" />
-                <Metric label="Mean speed" value={gis.wind.mean_speed_ms} unit="m/s" testid="wind-speed" />
+                <Metric label="Mean speed" value={gis.wind.mean_speed_ms} unit="m/s" testid="wind-speed"
+                  hint={gis.wind.mean_speed_source} />
               </div>
               <p className="text-xs text-slate-600 mt-2">{gis.wind.guidance}</p>
               {gis.wind.is875_design && (

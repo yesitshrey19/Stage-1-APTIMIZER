@@ -279,7 +279,11 @@ async def run_plot(p, boundary, radius_m):
         "widest_road_m": g["accessibility"].get("widest_road_m"),
         "nearest_transit_m": g["accessibility"].get("nearest_transit_m"),
         "access_score": g["accessibility"].get("score"),
-        "nearest_water_m": g["flood"].get("nearest_water_m"),
+        # "none" when no water body lies within the study radius -- the same rule the
+        # measurer follows, so "none" on both sides is agreement, not a missing value.
+        "nearest_water_m": (g["flood"].get("nearest_water_m")
+                            if g["flood"].get("nearest_water_m") is not None
+                            and g["flood"]["nearest_water_m"] <= radius_m else "none"),
         "nearest_water_label": g["flood"].get("nearest_water_label"),
         "flood_level": g["flood"].get("level"), "flood_score": g["flood"].get("score"),
         "nearest_drain_m": g["flood"].get("nearest_drain_m"),
@@ -301,7 +305,8 @@ async def run_plot(p, boundary, radius_m):
         "ghi_kwh_m2_yr": ins.get("annual_kwh_per_sqm"),
         "ghi_day": ins.get("daily_average_kwh_per_sqm"),
         "wind_mean_ms": g["wind"].get("mean_speed_ms"),
-        "specific_yield": round(ins.get("annual_kwh_per_sqm", 0) * pr, 0),
+        # same formula as gis.solar_potential: site irradiation x optimal-tilt gain x PR
+        "specific_yield": round(ins.get("annual_kwh_per_sqm", 0) * ins.get("tilt_gain", 1.0) * pr, 0),
         "buildings": (f'{g["feature_counts"].get("buildings")}+' if (g.get("feature_counts_capped") or {}).get("buildings")
                       else g["feature_counts"].get("buildings")),
         "green": g["feature_counts"].get("green"),
@@ -344,6 +349,8 @@ CENTER = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
 # (key, label, kind, tolerance, unit, reference, how to measure)
 # kind: abs | rel | time (minutes) | exact | flood | info
+RADIUS_FOR_WATER = 500      # study radius; set from --radius at run time
+
 METRICS = [
     ("area_sqm", "Plot area", "rel", 0.02, "m²", "Google Earth Pro polygon",
      "Draw the plot boundary in Google Earth Pro (Add > Polygon) and read Area in the Measurements tab. "
@@ -352,13 +359,14 @@ METRICS = [
      "Ruler tool: shortest distance from the plot boundary to the centreline of the nearest PUBLIC road "
      "(not campus driveways, parking aisles or private internal roads). 0 if it runs along the plot. "
      "Aptimizer_Detail names the road Aptimizer used."),
-    ("nearest_water_m", "Distance to nearest water body", "abs", 25, "m", "Google Earth Pro ruler",
+    ("nearest_water_m", "Distance to nearest water body", "water", 25, "m", "Google Earth Pro ruler",
      "Shortest distance from the plot boundary to the edge of the nearest lake, tank or river "
      "(not storm drains). Leave blank if none within the study radius."),
     ("elev_mean_m", "Mean ground elevation", "abs", 5, "m", "Google Earth Pro / Bhuvan CartoDEM",
      "Average the elevation shown at the plot centre and its four corners (status bar 'elev')."),
     ("slope_pct", "Average slope across plot", "abs", 1.0, "%", "Google Earth elevation profile",
-     "Draw a path corner-to-corner, Show Elevation Profile, read the average slope."),
+     "Draw a north-south and an east-west line across the plot; slope = sqrt(s1^2 + s2^2), "
+     "each s = height difference / length x 100."),
     ("seismic_zone", "Seismic zone", "exact", None, "", "IS 1893 (Part 1):2016 zone map",
      "Read the zone (II, III, IV or V) for the city from IS 1893 Annex E / the BIS seismic map."),
     ("wind_vb_ms", "Basic wind speed Vb", "abs", 0.01, "m/s", "IS 875 (Part 3):2015 Annex A",
@@ -371,12 +379,14 @@ METRICS = [
      "Date 2026-06-21, set the time to Solar Noon and read the Solar Elevation."),
     ("specific_yield", "Solar yield per kWp", "rel", 0.10, "kWh/kWp/yr", "PVGIS or Global Solar Atlas",
      "globalsolaratlas.info: click the plot, read 'Specific photovoltaic power output' (kWh/kWp per year)."),
-    ("ghi_day", "Daily solar radiation (GHI)", "rel", 0.10, "kWh/m²/day", "NASA POWER (ALLSKY_SFC_SW_DWN)",
-     "power.larc.nasa.gov/data-access-viewer: Single Point, enter the plot lat/long, Climatology, parameter "
-     "'All Sky Surface Shortwave Downward Irradiance'; read the annual (ANN) value in kWh/m²/day. "
-     "All Bengaluru plots share one NASA grid cell, so expect near-identical values."),
+    ("ghi_day", "Daily solar radiation (GHI)", "rel", 0.10, "kWh/m²/day", "Global Solar Atlas (Solargis) GHI ÷ 365",
+     "globalsolaratlas.info: click the plot, read 'Global horizontal irradiation' (kWh/m² per year) and divide "
+     "by 365. Aptimizer reads NASA POWER, so Global Solar Atlas -- a different satellite dataset -- keeps this "
+     "an independent check."),
     ("wind_mean_ms", "Mean wind speed at 10 m", "abs", 0.5, "m/s", "NASA POWER (WS10M)",
-     "Same NASA POWER viewer, parameter 'Wind Speed at 10 Meters'; read the annual (ANN) value."),
+     "power.larc.nasa.gov/data-access-viewer: Single Point, Climatology, parameter 'Wind Speed at 10 Meters'; "
+     "read the annual (ANN) value. Aptimizer reads this same dataset, so this confirms the data link rather "
+     "than giving an independent check."),
     ("flood_level", "Flood risk vs flood history", "flood", None, "", "BBMP flood-prone list / news / KSNDMC",
      "Enter Yes if the plot or its street flooded in a known event (e.g. 2022 Bengaluru floods), else No. "
      "PASS = Yes with Aptimizer moderate/high, or No with Aptimizer low/moderate."),
@@ -456,6 +466,15 @@ def write_workbook(out_path, plots, results, run_meta, carried):
                 res_f = (f'=IF(OR({G}{r}="",{A}{r}="",{G}{r}=0),"",'
                          f'IF(ABS({A}{r}-{G}{r})/{G}{r}<={tol},"PASS","FAIL"))')
                 ws.cell(row=r, column=c0 + 2).number_format = "0.0%"
+            elif kind == "water":
+                # A measured distance beyond the study radius is "none" by the method's own rule.
+                if isinstance(gt.value, (int, float)) and gt.value > RADIUS_FOR_WATER:
+                    gt.value = "none"
+                err = (f'=IF(OR({G}{r}="",{A}{r}="",{G}{r}="none",{A}{r}="none"),"",'
+                       f'ROUND({A}{r}-{G}{r},2))')
+                res_f = (f'=IF(OR({G}{r}="",{A}{r}=""),"",IF(AND({G}{r}="none",{A}{r}="none"),"PASS",'
+                         f'IF(OR({G}{r}="none",{A}{r}="none"),"FAIL",'
+                         f'IF(ABS({A}{r}-{G}{r})<={tol},"PASS","FAIL"))))')
             elif kind == "exact":
                 err = ""
                 res_f = f'=IF({G}{r}="","",IF(UPPER(TRIM({G}{r}))=UPPER(TRIM({A}{r})),"PASS","FAIL"))'
@@ -730,6 +749,8 @@ def read_carried(path):
 # ------------------------------------------------------------------------- main
 
 async def main_async(args):
+    global RADIUS_FOR_WATER
+    RADIUS_FOR_WATER = args.radius
     plots = read_plots(args.input)
     if not plots:
         raise SystemExit("No plots with Plot ID, Latitude and Longitude found.")
