@@ -7,7 +7,7 @@
 export function BrandMark({ className = "h-8 w-auto", light = false }) {
   return (
     <img
-      src={light ? "/logo-mark-light.png" : "/logo-mark.png"}
+      src={`${process.env.PUBLIC_URL}/${light ? "logo-mark-light.png" : "logo-mark.png"}`}
       alt=""
       aria-hidden="true"
       className={className}

@@ -34,7 +34,7 @@ function App() {
       {/* Mounted outside the router so navigation never restarts the grid. */}
       <AppBackground />
       <AuthProvider>
-        <BrowserRouter>
+        <BrowserRouter basename={process.env.PUBLIC_URL || "/"}>
           <ErrorBoundary title="Application Error">
             <Routes>
               <Route path="/" element={<Landing />} />

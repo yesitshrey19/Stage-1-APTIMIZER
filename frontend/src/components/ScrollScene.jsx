@@ -175,7 +175,7 @@ export function ScrollScene({ progress, className = "" }) {
 
     // 6-worker off-thread decode pool using createImageBitmap (with Image.decode fallback).
     const mobile = window.matchMedia("(max-width: 767px)").matches;
-    const assetPath = mobile ? "/frames/mobile" : "/frames";
+    const assetPath = `${process.env.PUBLIC_URL}${mobile ? "/frames/mobile" : "/frames"}`;
     const source = (index) => `${assetPath}/${String(index + 1).padStart(2, "0")}.webp`;
     let cursor = 0;
 
@@ -232,7 +232,7 @@ export function ScrollScene({ progress, className = "" }) {
     <div className={`absolute inset-0 ${className}`} data-testid="landing-scene">
       <img
         ref={poster}
-        src="/frames/01.webp"
+        src={`${process.env.PUBLIC_URL}/frames/01.webp`}
         alt="Architectural model of a residential building"
         fetchPriority="high"
         className="absolute inset-0 h-full w-full object-contain transition-opacity duration-300"
