@@ -16,6 +16,7 @@ const LAYERS = [
   ["water_lines", "Waterways", "#0284C7", 0],
   ["green", "Green areas", "#16A34A", 0.3],
   ["water", "Water bodies", "#0EA5E9", 0.45],
+  ["drains", "Storm drains", "#B45309", 0],
   ["transit", "Transit stops", "#7C3AED", 0.9],
 ];
 
@@ -48,7 +49,7 @@ export const splitWater = (water = []) => {
 
 export const GisMap = ({ coordinates = [], features = {}, height = 460 }) => {
   const [visible, setVisible] = useState({
-    buildings: true, roads: true, water_lines: true, green: true, water: true, transit: true,
+    buildings: true, roads: true, water_lines: true, green: true, water: true, transit: true, drains: true,
   });
   const center = coordinates.length
     ? [
@@ -107,13 +108,16 @@ export const GisMap = ({ coordinates = [], features = {}, height = 460 }) => {
                     </CircleMarker>
                   );
                 }
-                if (key === "roads" || role === "line") {
+                if (key === "roads" || key === "drains" || role === "line") {
                   return (
                     <Polyline key={`${key}-${f.id}`} positions={f.geometry}
-                      pathOptions={{ color, weight: key === "roads" ? 3 : 2.5, opacity: 0.85 }}>
+                      pathOptions={{ color, weight: key === "roads" ? 3 : 2.5, opacity: 0.85,
+                                     ...(key === "drains" ? { dashArray: "6 4" } : {}) }}>
                       <Tooltip>
                         {key === "roads"
                           ? `${f.name || f.kind} · ${f.road_width_m || "?"} m wide · ${f.distance_m} m away`
+                          : key === "drains"
+                          ? `Storm-water drain${f.name ? ` · ${f.name}` : ""} · ${f.distance_m} m away`
                           : `${f.name || f.kind} (centreline) · ${f.distance_m} m away`}
                       </Tooltip>
                     </Polyline>

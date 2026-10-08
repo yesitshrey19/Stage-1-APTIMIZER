@@ -38,7 +38,12 @@ EARTH_R = 6371000.0
 #    parks read from relations, and distances measured edge-to-edge with containment.
 # 3: enclosed water areas under MIN_WATER_AREA_SQM (ornamental pools, fountains) are not
 #    treated as water bodies, so they no longer drive the flood score.
-ANALYSIS_RULES_VERSION = 3
+# 4: storm-water drains (rajakaluves) are fetched as their own layer and add to the flood
+#    score by proximity -- in Bengaluru they, not lakes, are what overflows in heavy rain.
+# 5: "nearest road" is the nearest PUBLIC road. Service roads (campus driveways, parking
+#    aisles) and roads tagged access=private no longer count as site access; they made
+#    every campus plot read 0 m from a road.
+ANALYSIS_RULES_VERSION = 5
 
 # A fountain or ornamental pool is tagged natural=water like a lake, and on its own was
 # enough to mark a plot "high" flood risk. Ponds and tanks that matter for drainage are
@@ -169,7 +174,7 @@ def _overpass_query(bb, radius_m):
   way["leisure"~"^(park|garden|pitch|playground)$"]({box});
   way["landuse"~"^(grass|forest|meadow|recreation_ground|village_green|orchard)$"]({box});
   way["natural"~"^(wood|scrub|water|wetland)$"]({box});
-  way["waterway"~"^(river|stream|canal)$"]({box});
+  way["waterway"~"^(river|stream|canal|drain|ditch)$"]({box});
   relation["natural"~"^(water|wetland)$"]({box});
   relation["leisure"="park"]({box});
   node["public_transport"="station"]({box});
@@ -194,6 +199,19 @@ ENGINEERED_WATER_TYPES = {"wastewater", "sewage", "sewer", "drain", "ditch",
                           "stormwater", "storm_water"}
 
 
+# Storm-water drains carry rain run-off and overflow in a cloudburst; sewage and
+# wastewater channels do not drive flooding the same way and stay excluded.
+SEWAGE_TYPES = {"wastewater", "sewage", "sewer"}
+
+
+def _is_storm_drain(tags):
+    waterway = str(tags.get("waterway") or "").lower()
+    water = str(tags.get("water") or "").lower()
+    if waterway in SEWAGE_TYPES or water in SEWAGE_TYPES or tags.get("usage") == "sewage":
+        return False
+    return waterway in {"drain", "ditch", "storm_drain"} or water in {"drain", "ditch", "stormwater", "storm_water"}
+
+
 def _is_engineered_water(tags):
     """True for a drainage or sewage conveyance tagged as water on OSM."""
     if str(tags.get("waterway") or "").lower() in ENGINEERED_WATERWAYS:
@@ -209,6 +227,8 @@ def _classify(tags):
     if tags.get("highway") == "bus_stop" or tags.get("public_transport") == "station" or "railway" in tags:
         return "transit"
     if tags.get("natural") in ("water", "wetland") or "waterway" in tags:
+        if _is_storm_drain(tags):
+            return "drains"            # its own layer: never a "water body", but a flood factor
         return None if _is_engineered_water(tags) else "water"
     if tags.get("leisure") or tags.get("landuse") or tags.get("natural") in ("wood", "scrub"):
         return "green"
@@ -371,7 +391,7 @@ def fetch_overpass(coords, radius_m):
     try:
         url, data = _overpass_raw(query)
     except Exception as exc:
-        return {"buildings": [], "roads": [], "green": [], "water": [], "transit": []}, {
+        return {"buildings": [], "roads": [], "green": [], "water": [], "transit": [], "drains": []}, {
             "ok": False, "error": str(exc)}
     # Whether OpenStreetMap had more buildings/roads than the query returns, so the counts
     # shown are lower bounds rather than totals.
@@ -426,7 +446,7 @@ def _relation_rings(el):
 
 
 def _parse_overpass(data, coords, radius_m):
-    out = {"buildings": [], "roads": [], "green": [], "water": [], "transit": []}
+    out = {"buildings": [], "roads": [], "green": [], "water": [], "transit": [], "drains": []}
     for el in data.get("elements", []):
         tags = el.get("tags") or {}
         cat = _classify(tags)
@@ -469,6 +489,7 @@ def _append_feature(out, cat, el, tags, role, geometry, dist, idx=0):
     if cat == "roads":
         item["road_width_m"] = _road_width(tags)
         item["lanes"] = tags.get("lanes", "")
+        item["access"] = tags.get("access", "")
     out[cat].append(item)
 
 
@@ -538,6 +559,30 @@ def fetch_elevation(points):
             return None, {"ok": False, "error": f"open-meteo: {first}; open-elevation: {exc}"}
 
 
+def _plane_slope_pct(points, elevations):
+    """Slope (%) of the least-squares plane z = a + b*x + c*y through the samples, or None
+    when there are too few distinct points to define a plane."""
+    if len(points) < 3:
+        return None
+    lat0 = sum(p[0] for p in points) / len(points)
+    k = math.cos(math.radians(lat0))
+    xs = [(p[1] - points[0][1]) * 111320.0 * k for p in points]
+    ys = [(p[0] - points[0][0]) * 110540.0 for p in points]
+    n = len(points)
+    mx, my, mz = sum(xs) / n, sum(ys) / n, sum(elevations) / n
+    sxx = sum((x - mx) ** 2 for x in xs)
+    syy = sum((y - my) ** 2 for y in ys)
+    sxy = sum((x - mx) * (y - my) for x, y in zip(xs, ys))
+    sxz = sum((x - mx) * (z - mz) for x, z in zip(xs, elevations))
+    syz = sum((y - my) * (z - mz) for y, z in zip(ys, elevations))
+    det = sxx * syy - sxy * sxy
+    if abs(det) < 1e-6:
+        return None
+    b = (sxz * syy - syz * sxy) / det
+    c = (syz * sxx - sxz * sxy) / det
+    return math.hypot(b, c) * 100.0
+
+
 def terrain_analysis(coords):
     grid, profile, ring = _sample_points(coords)
     all_pts = grid + profile + ring
@@ -555,7 +600,12 @@ def terrain_analysis(coords):
     s_, w_, n_, e_ = bbox(coords)
     horizontal = haversine([s_, w_], [n_, e_]) or 1.0  # plot diagonal extent
     relief = max(g) - min(g)
-    slope_pct = round(relief / horizontal * 100, 2)
+    # Average slope = gradient of the best-fit plane through every in-plot sample. Taking
+    # (highest - lowest) / diagonal used only the two extreme samples, and on a 90 m DEM
+    # that reports whole metres a single 1 m step read as several percent on a small, flat
+    # plot. The plane uses all samples, so isolated steps average out.
+    fitted = _plane_slope_pct(grid, g)
+    slope_pct = round(fitted if fitted is not None else relief / horizontal * 100, 2)
 
     start = profile[0]
     prof = [{"distance_m": round(haversine(start, pt), 1), "elevation_m": e} for pt, e in zip(profile, p)]
@@ -592,7 +642,11 @@ def _water_label(item):
     return WATER_KIND_LABEL.get(str((item or {}).get("kind") or "").lower(), "Water body")
 
 
-def flood_risk(terrain, water):
+# Points added for a storm-water drain near the plot: (within metres, points).
+DRAIN_POINTS = [(30.0, 25), (100.0, 15), (200.0, 8)]
+
+
+def flood_risk(terrain, water, drains=None):
     reasons = []
     score = 0
     nearest = water[0] if water else None
@@ -608,6 +662,17 @@ def flood_risk(terrain, water):
         elif nearest_water <= 400:
             score += 15
             reasons.append(f"{label} {nearest_water:.0f} m away")
+    nearest_drain = (drains or [None])[0]
+    nearest_drain_m = nearest_drain["distance_m"] if nearest_drain else None
+    if nearest_drain_m is not None:
+        for limit, pts in DRAIN_POINTS:
+            if nearest_drain_m <= limit:
+                score += pts
+                name = (nearest_drain.get("name") or "").strip()
+                what = f"Storm-water drain{f' ({name})' if name else ''}"
+                reasons.append(f"{what} {'runs along the plot' if nearest_drain_m == 0 else f'{nearest_drain_m:.0f} m away'} "
+                               "— drains like Bengaluru’s rajakaluves overflow in heavy rain")
+                break
     if terrain.get("available") and terrain.get("ring_mean_m") is not None:
         delta = round(terrain["mean_m"] - terrain["ring_mean_m"], 2)
         if delta <= -2.0:
@@ -648,7 +713,13 @@ def flood_risk(terrain, water):
         if level != "low" else
         "Harvest pits sized for annual rainfall give the required recharge without detention",
     ]
+    if nearest_drain_m is not None and nearest_drain_m <= 200:
+        response.append("Keep the statutory buffer from the storm-water drain free of construction (check the "
+                        "local BBMP/NGT buffer rule) and raise the entrance and basement ramp above the drain’s "
+                        "overflow level")
     return {"score": score, "level": level, "reasons": reasons,
+            "nearest_drain_m": nearest_drain_m,
+            "nearest_drain_name": ((nearest_drain or {}).get("name") or None) if nearest_drain else None,
             "nearest_water_m": nearest_water,
             "nearest_water_kind": (nearest or {}).get("kind"),
             "nearest_water_label": label if nearest_water is not None else None,
@@ -819,7 +890,7 @@ def sun_events(lat, lng, doy):
     ha = math.degrees(math.acos(cos_ha))
     rise = (720 - 4 * (lng + ha) - eqtime) / 60.0 + tz
     seti = (720 - 4 * (lng - ha) - eqtime) / 60.0 + tz
-    return {"sunrise_hour": round(rise, 2), "sunset_hour": round(seti, 2),
+    return {"sunrise_hour": round(rise, 4), "sunset_hour": round(seti, 4),
             "daylight_hours": round(seti - rise, 2)}
 
 
@@ -956,7 +1027,20 @@ def solar_potential(lat, lng, roof_area_sqm, config=None):
 
 
 # ------------------------------------------------------------------ accessibility
+PRIVATE_ROAD_KINDS = {"service", "track"}
+PRIVATE_ACCESS = {"private", "no", "customers", "delivery", "permit"}
+
+
+def is_public_road(road):
+    """A road the plot could take its legal access from: not a driveway, parking aisle or
+    campus service road, and not tagged private."""
+    return (road.get("kind") not in PRIVATE_ROAD_KINDS
+            and str(road.get("access") or "").lower() not in PRIVATE_ACCESS)
+
+
 def accessibility(roads, transit, coords, road_edges):
+    internal = roads[0] if roads else None
+    roads = [r for r in roads if is_public_road(r)]
     nearest = roads[0] if roads else None
     widest = max(roads, key=lambda r: r.get("road_width_m") or 0) if roads else None
     within_100 = [r for r in roads if r["distance_m"] <= 100]
@@ -965,7 +1049,8 @@ def accessibility(roads, transit, coords, road_edges):
     if nearest:
         if nearest["distance_m"] <= 10:
             score += 50
-            notes.append(f"Plot abuts a {nearest['kind']} road ({nearest['distance_m']:.0f} m)")
+            road_name = f" ({nearest['name']})" if nearest.get("name") else ""
+            notes.append(f"Plot abuts a public {nearest['kind']} road{road_name} ({nearest['distance_m']:.0f} m)")
         elif nearest["distance_m"] <= 50:
             score += 38
             notes.append(f"Nearest road {nearest['distance_m']:.0f} m away")
@@ -975,7 +1060,7 @@ def accessibility(roads, transit, coords, road_edges):
         else:
             notes.append(f"Nearest mapped road is {nearest['distance_m']:.0f} m away — no direct access")
     else:
-        notes.append("No mapped road detected within the search radius")
+        notes.append("No mapped public road detected within the search radius")
     if widest and (widest.get("road_width_m") or 0) >= 12:
         score += 20
         notes.append(f"{widest.get('road_width_m')} m wide {widest['kind']} road nearby supports fire-tender access")
@@ -998,6 +1083,9 @@ def accessibility(roads, transit, coords, road_edges):
     return {"score": score, "roads_within_100m": len(within_100),
             "nearest_road_m": nearest["distance_m"] if nearest else None,
             "nearest_road_kind": nearest["kind"] if nearest else None,
+            "nearest_road_name": (nearest.get("name") or None) if nearest else None,
+            # The closest road of any kind, including private driveways and service roads.
+            "nearest_internal_road_m": internal["distance_m"] if internal else None,
             "widest_road_m": (widest.get("road_width_m") if widest else None),
             "nearest_transit_m": nearest_transit["distance_m"] if nearest_transit else None,
             "notes": notes}
@@ -1207,7 +1295,7 @@ async def analyse_site(project, radius_m=500):
         await asyncio.sleep(4)
         features, ov_status = await asyncio.to_thread(fetch_overpass, coords, radius_m)
     capped = ov_status.pop("capped", {}) if isinstance(ov_status, dict) else {}
-    flood = flood_risk(terrain, features["water"])
+    flood = flood_risk(terrain, features["water"], features.get("drains"))
     access = accessibility(features["roads"], features["transit"], coords, plot.get("road_edges") or [])
     sun = sun_path(round(c[0], 6), round(c[1], 6), plot.get("orientation_deg") or 0)
     # Roof available for PV is the towers' combined footprint -- the terrace is the

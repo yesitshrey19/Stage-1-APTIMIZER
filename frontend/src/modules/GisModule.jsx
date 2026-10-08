@@ -308,12 +308,14 @@ export default function GisModule({ project, projectId, readOnly, setProject }) 
                   </li>
                 ))}
               </ul>
-              <div className="grid grid-cols-2 gap-3 mt-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-3">
                 {/* Named for what was actually detected — a storm drain crossing the plot is
                     not a lake, and calling it one is what made this panel look wrong. */}
                 <Metric label={`Nearest ${(gis.flood.nearest_water_label || "water body").toLowerCase()}`}
                   value={gis.flood.nearest_water_m ?? "none"} unit="m" testid="flood-nearest-water" />
                 <Metric label="Elevation vs surroundings" value={gis.flood.elevation_delta_m ?? "—"} unit="m" testid="flood-delta" />
+                <Metric label="Nearest storm-water drain" value={gis.flood.nearest_drain_m ?? "none mapped"}
+                  unit={gis.flood.nearest_drain_m != null ? "m" : ""} testid="flood-nearest-drain" />
               </div>
               {(gis.flood.plinth_height_m != null || gis.flood.design_response) && (
                 <div className="mt-3 border border-sky-200 bg-sky-50 rounded-sm px-3 py-2" data-testid="flood-design-response">

@@ -273,6 +273,8 @@ async def run_plot(p, boundary, radius_m):
         "secs": secs, "boundary_source": bsource, "area_sqm": round(area, 1), "vertices": len(coords),
         "nearest_road_m": g["accessibility"].get("nearest_road_m"),
         "nearest_road_kind": g["accessibility"].get("nearest_road_kind"),
+        "nearest_road_name": g["accessibility"].get("nearest_road_name"),
+        "nearest_internal_road_m": g["accessibility"].get("nearest_internal_road_m"),
         "roads_within_100m": g["accessibility"].get("roads_within_100m"),
         "widest_road_m": g["accessibility"].get("widest_road_m"),
         "nearest_transit_m": g["accessibility"].get("nearest_transit_m"),
@@ -280,6 +282,7 @@ async def run_plot(p, boundary, radius_m):
         "nearest_water_m": g["flood"].get("nearest_water_m"),
         "nearest_water_label": g["flood"].get("nearest_water_label"),
         "flood_level": g["flood"].get("level"), "flood_score": g["flood"].get("score"),
+        "nearest_drain_m": g["flood"].get("nearest_drain_m"),
         "elev_delta_m": g["flood"].get("elevation_delta_m"), "plinth_m": g["flood"].get("plinth_height_m"),
         "elev_mean_m": g["terrain"].get("mean_m"), "elev_min_m": g["terrain"].get("min_m"),
         "elev_max_m": g["terrain"].get("max_m"), "relief_m": g["terrain"].get("relief_m"),
@@ -317,7 +320,7 @@ async def run_plot(p, boundary, radius_m):
     if not map_ok:
         # Without OpenStreetMap data the road, water and building figures are absences, not
         # measurements; leave them blank rather than let them be scored as results.
-        for k in ("nearest_road_m", "nearest_road_kind", "roads_within_100m", "widest_road_m",
+        for k in ("nearest_road_m", "nearest_road_kind", "roads_within_100m", "widest_road_m", "nearest_drain_m",
                   "nearest_transit_m", "access_score", "nearest_water_m", "nearest_water_label",
                   "flood_level", "flood_score", "buildings", "green", "water_features", "transit",
                   "suitability", "grade", "buildable", "flags"):
@@ -346,8 +349,9 @@ METRICS = [
      "Draw the plot boundary in Google Earth Pro (Add > Polygon) and read Area in the Measurements tab. "
      "Only meaningful when the boundary came from your KML (column Boundary)."),
     ("nearest_road_m", "Distance to nearest road", "abs", 10, "m", "Google Earth Pro ruler",
-     "Ruler tool: shortest distance from the plot boundary to the centreline of the nearest road. "
-     "0 if a road runs inside or along the plot."),
+     "Ruler tool: shortest distance from the plot boundary to the centreline of the nearest PUBLIC road "
+     "(not campus driveways, parking aisles or private internal roads). 0 if it runs along the plot. "
+     "Aptimizer_Detail names the road Aptimizer used."),
     ("nearest_water_m", "Distance to nearest water body", "abs", 25, "m", "Google Earth Pro ruler",
      "Shortest distance from the plot boundary to the edge of the nearest lake, tank or river "
      "(not storm drains). Leave blank if none within the study radius."),
@@ -560,6 +564,8 @@ def write_workbook(out_path, plots, results, run_meta, carried):
             ("GIS run (s)", lambda p, x: x["secs"]),
             ("Nearest road (m)", lambda p, x: x["nearest_road_m"]),
             ("Nearest road type", lambda p, x: x["nearest_road_kind"]),
+            ("Nearest public road name", lambda p, x: x.get("nearest_road_name")),
+            ("Nearest internal/service road (m)", lambda p, x: x.get("nearest_internal_road_m")),
             ("Your nearest road (sheet)", lambda p, x: p["road_name"]),
             ("Roads within 100 m", lambda p, x: x["roads_within_100m"]),
             ("Widest road nearby (m, by OSM class)", lambda p, x: x["widest_road_m"]),
@@ -569,6 +575,7 @@ def write_workbook(out_path, plots, results, run_meta, carried):
             ("Water type", lambda p, x: x["nearest_water_label"]),
             ("Your water note (sheet)", lambda p, x: p["water_note"]),
             ("Flood level", lambda p, x: x["flood_level"]), ("Flood score", lambda p, x: x["flood_score"]),
+            ("Nearest storm drain (m)", lambda p, x: x.get("nearest_drain_m")),
             ("Elevation vs surroundings (m)", lambda p, x: x["elev_delta_m"]),
             ("Min plinth (m)", lambda p, x: x["plinth_m"]),
             ("Elev mean (m)", lambda p, x: x["elev_mean_m"]), ("Elev min (m)", lambda p, x: x["elev_min_m"]),

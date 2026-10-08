@@ -56,8 +56,11 @@ def test_streams_are_lines_and_lakes_are_areas():
 
 
 def test_drains_and_sewage_are_never_classified_as_water():
-    for tags in ({"waterway": "drain"}, {"waterway": "ditch"},
-                 {"waterway": "sewage"}, {"waterway": "wastewater"},
+    # Storm-water drains are their own flood-factor layer, never "water".
+    for tags in ({"waterway": "drain"}, {"waterway": "ditch"}):
+        assert gislib._classify(tags) == "drains", tags
+    # Sewage and wastewater channels are dropped entirely.
+    for tags in ({"waterway": "sewage"}, {"waterway": "wastewater"},
                  {"natural": "water", "water": "wastewater"},
                  {"natural": "water", "water": "sewage"}):
         assert gislib._classify(tags) is None, tags
@@ -76,12 +79,27 @@ def test_parse_overpass_marks_each_feature_with_its_role():
     assert by_id["4"]["geom"] == "point"
 
 
-def test_parse_overpass_drops_drains_and_sewage_entirely():
+def test_storm_drains_are_their_own_layer_and_sewage_is_dropped():
     out = gislib._parse_overpass(_payload(), PLOT, 500)
+    assert "5" not in {f["id"] for f in out["water"]}, "a storm drain must never count as a water body"
+    assert "5" in {f["id"] for f in out["drains"]}, "a storm drain is kept as a flood factor"
     present = {f["id"] for cat in out.values() for f in cat}
-    assert "5" not in present, "a storm drain must not reach the map or the flood score"
     assert "6" not in present, "a sewage pond must not reach the map or the flood score"
     assert not any(f["kind"] == "drain" for f in out["water"])
+
+
+def test_a_storm_drain_raises_the_flood_score_by_distance():
+    terrain = {"available": False}
+    base = gislib.flood_risk(terrain, [], [])
+    near = gislib.flood_risk(terrain, [], [{"distance_m": 12.0, "name": "Koramangala valley drain"}])
+    mid = gislib.flood_risk(terrain, [], [{"distance_m": 80.0, "name": ""}])
+    far = gislib.flood_risk(terrain, [], [{"distance_m": 600.0, "name": ""}])
+    assert near["score"] - base["score"] == 25
+    assert mid["score"] - base["score"] == 15
+    assert far["score"] == base["score"]
+    assert near["nearest_drain_m"] == 12.0
+    assert any("Koramangala valley drain" in r for r in near["reasons"])
+    assert any("buffer" in d for d in near["design_response"])
 
 
 def test_stream_through_the_plot_keeps_its_full_extent():

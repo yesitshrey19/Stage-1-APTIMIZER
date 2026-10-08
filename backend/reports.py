@@ -1573,6 +1573,8 @@ def build_pdf(report_type: str, project: dict, a: dict, eng: dict = None) -> byt
                 ("Relief (m)", _n(t.get("relief_m"))),
                 ("Flood risk", fl.get("level", "-")),
                 ("Flood score", _n(fl.get("score"))),
+                ("Nearest storm-water drain (m)", _n(fl["nearest_drain_m"]) if fl.get("nearest_drain_m") is not None
+                 else "none mapped within the study area"),
             ])]
             fac = (g.get("sun") or {}).get("facades") or []
             if fac:
