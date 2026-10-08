@@ -20,16 +20,16 @@ from typing import Any, Dict, List, Optional
 
 import iscodes as C
 
-# NBC 2016 Part 3, exterior open space: minimum side and rear open space grows with the
-# height of the building. This is the provision that actually governs setbacks on a
-# multi-storey residential plot — plot-size minimums are usually the lesser requirement.
-# (height in metres up to, required open space in metres)
+# NBC 2016 Part 3, exterior open space (Table 4, Cl. 8.2.3.1): minimum side and rear open
+# space grows with the height of the building. This is the provision that actually governs
+# setbacks on a multi-storey residential plot — plot-size minimums are usually the lesser
+# requirement. (height in metres up to, required open space in metres)
 HEIGHT_OPEN_SPACE = [
     (10.0, 3.0), (15.0, 5.0), (18.0, 6.0), (21.0, 7.0), (24.0, 8.0),
     (27.0, 9.0), (30.0, 10.0), (35.0, 11.0), (40.0, 12.0), (45.0, 13.0),
-    (50.0, 14.0), (55.0, 16.0),
+    (50.0, 14.0), (55.0, 16.0), (70.0, 17.0), (120.0, 18.0),
 ]
-HEIGHT_OPEN_SPACE_MAX = 16.0
+HEIGHT_OPEN_SPACE_MAX = 20.0    # Table 4 Sl xv: above 120 m
 
 # Plot-size based minimum front setback, applied when it exceeds the height-driven figure.
 # (plot area in m2 up to, front setback in metres)
@@ -40,7 +40,10 @@ PLOT_FRONT_SETBACK = [
 # Height is commonly capped at 1.5 x (abutting road width + front setback). A plot with no
 # adequate road frontage cannot support a tall building however large it is.
 HEIGHT_ROAD_MULTIPLIER = 1.5
-MIN_ROAD_FOR_HIGHRISE = 9.0     # below this most authorities refuse high-rise outright
+# NBC 2016 Part 3 Cl. 4.6(a): a high-rise building (15 m and above, Part 4 Cl. 2.38) needs a
+# main street of at least 12 m, one end of which joins another street of at least 12 m.
+MIN_ROAD_FOR_HIGHRISE = 12.0
+HIGHRISE_HEIGHT_M = 15.0
 
 # Indicative FAR by city tier. Municipal bye-laws override these in every real case.
 FAR_BY_CITY = {
@@ -57,8 +60,7 @@ def open_space_for_height(height_m: float) -> float:
     for limit, space in HEIGHT_OPEN_SPACE:
         if height_m <= limit:
             return space
-    # Above the table, the requirement continues to scale but is capped in most bye-laws.
-    return min(max(height_m / 3.0, HEIGHT_OPEN_SPACE_MAX), HEIGHT_OPEN_SPACE_MAX)
+    return HEIGHT_OPEN_SPACE_MAX
 
 
 def front_setback_for_plot(plot_area: float) -> float:
@@ -117,10 +119,10 @@ def setback_minimums(plot_area: float, road_width: float = 0.0,
             "clause": "NBC 2016 Part 3, Cl. 8",
         },
     }
-    if road_width and road_width < MIN_ROAD_FOR_HIGHRISE:
-        out["_note"] = (f"The abutting road is {road_width:g} m. Most authorities refuse "
-                        f"high-rise below {MIN_ROAD_FOR_HIGHRISE:g} m of frontage whatever "
-                        "the setbacks are.")
+    if road_width and road_width < MIN_ROAD_FOR_HIGHRISE and height_m >= HIGHRISE_HEIGHT_M:
+        out["_note"] = (f"The abutting road is {road_width:g} m. NBC 2016 Part 3 Cl. 4.6(a) "
+                        f"needs a road of at least {MIN_ROAD_FOR_HIGHRISE:g} m for a high-rise "
+                        "building (15 m and above), whatever the setbacks are.")
     return out
 
 
@@ -267,17 +269,22 @@ def recommend(plot_area: float,
     ]
 
     warnings: List[str] = []
-    if road_width and road_width < MIN_ROAD_FOR_HIGHRISE and height > 15:
+    if road_width and road_width < MIN_ROAD_FOR_HIGHRISE and height >= HIGHRISE_HEIGHT_M:
         warnings.append(
-            f"The abutting road is {road_width:g} m wide. Most authorities do not permit "
-            f"buildings above 15 m on roads narrower than {MIN_ROAD_FOR_HIGHRISE:g} m, "
-            "regardless of plot size or FAR.")
+            f"The abutting road is {road_width:g} m wide. NBC 2016 Part 3 Cl. 4.6(a) does not "
+            f"permit high-rise buildings (15 m and above) on roads narrower than "
+            f"{MIN_ROAD_FOR_HIGHRISE:g} m, regardless of plot size or FAR.")
     if not road_width:
         warnings.append("No abutting road width recorded, so the height-versus-road-width "
                         "limit could not be applied. Mark a road-facing edge in Plot & Site.")
     if height > 24:
-        warnings.append("Above 24 m: refuge floors, a fire lift and IS 13920 ductile "
-                        "detailing all become mandatory.")
+        warnings.append("Above 24 m: refuge areas are required (NBC 2016 Part 4, Annex E-4; "
+                        "apartments with balconies are exempt up to 60 m) and a minimum front "
+                        "open space of 6 m applies (Part 3, Table 4 Note 1).")
+    if height >= HIGHRISE_HEIGHT_M:
+        warnings.append("15 m and above is a high-rise building (NBC 2016 Part 4, Cl. 2.38): "
+                        "a fireman's lift (Part 8 Sec 5A, Cl. 7.1.1) and 6 m fire-tender access "
+                        "around the building (Part 3, Cl. 4.6) are required.")
     if usable_width <= 12.0 or usable_depth <= 12.0:
         warnings.append(
             f"At {height:.0f} m the required open space leaves only about "

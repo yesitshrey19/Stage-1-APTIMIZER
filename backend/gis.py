@@ -43,7 +43,9 @@ EARTH_R = 6371000.0
 # 5: "nearest road" is the nearest PUBLIC road. Service roads (campus driveways, parking
 #    aisles) and roads tagged access=private no longer count as site access; they made
 #    every campus plot read 0 m from a road.
-ANALYSIS_RULES_VERSION = 5
+# 6: IS 875-3 k2 factors corrected to Table 2 of the 2015 code (terrain 2: 1.00 at 10 m),
+#    and basic wind speeds to Annex A as amended in 2020 (Delhi 50 m/s).
+ANALYSIS_RULES_VERSION = 6
 
 # A fountain or ornamental pool is tagged natural=water like a lake, and on its own was
 # enough to mark a plot "high" flood risk. Ponds and tanks that matter for drainage are
@@ -691,9 +693,10 @@ def flood_risk(terrain, water, drains=None):
     score = min(score, 100)
     level = "low" if score < 25 else "moderate" if score < 55 else "high"
 
-    # Design response: what the score means for the building. NBC 2016 Vol 2 Part 9
-    # Table 4 plinth heights and IS 3764 excavation practice, keyed off the same inputs
-    # the score was computed from, so guidance and score can never disagree.
+    # Design response: what the score means for the building, keyed off the same inputs
+    # the score was computed from, so guidance and score can never disagree. 0.45 m is the
+    # NBC 2016 Part 3 Cl. 12.1.1 minimum plinth above surrounding ground; the 0.6 / 0.9 m
+    # raises for moderate / high flood risk are Aptimizer's own margin.
     if level == "high":
         plinth = 0.9 if (terrain.get("available") and (terrain.get("avg_slope_pct") or 0) < 1) else 0.6
     elif level == "moderate":
@@ -762,11 +765,12 @@ def wind_profile(lat, lng, city_ref=None, building_height_m=0):
     design = None
     if city_ref and city_ref.get("wind_speed"):
         vb = float(city_ref["wind_speed"])
-        # k2 (terrain & height factor, Cl. 6.3.2.1 Table 2). Terrain 2 = obstructions
+        # k2 (terrain & height factor, Table 2, Cl. 6.3.2.2). Terrain 2 = obstructions
         # scattered (<10 m) — the suburban/town case this app targets; terrain 1 = open.
-        # Interpolated from Table 2 at the heights that matter for mid-rise.
-        k2_t2 = {10: 0.94, 15: 0.99, 20: 1.03, 30: 1.09, 50: 1.16}
-        k2_t1 = {10: 1.05, 15: 1.09, 20: 1.12, 30: 1.17, 50: 1.24}
+        # Interpolated from Table 2 at the heights that matter for mid-rise (same terrain 2
+        # values as iscodes.WIND_K2 used by the engineering module).
+        k2_t2 = {10: 1.00, 15: 1.05, 20: 1.07, 30: 1.12, 50: 1.17}
+        k2_t1 = {10: 1.05, 15: 1.09, 20: 1.12, 30: 1.15, 50: 1.20}
         h = max(float(building_height_m or 0), 10.0)
         heights = sorted(k2_t2)
         # clamp to the table range; below 10 m the code takes the 10 m value
@@ -782,10 +786,10 @@ def wind_profile(lat, lng, city_ref=None, building_height_m=0):
         k1_risk = 1.0          # general structures, Cl. 6.3.1
         k3 = 1.0               # flat terrain, Cl. 6.3.3
         k4 = 1.0               # less than 10 m above mean sea level... 1.0 inland
-        kd = 0.90              # wind directionality, Cl. 6.3.4 (buildings)
+        kd = 0.90              # wind directionality, Cl. 7.2.1 (buildings)
         vz_t2 = round(vb * k1_risk * k2 * k3 * k4, 2)
         vz_t1 = round(vb * k1_risk * k2_open * k3 * k4, 2)
-        # Cl. 7.2.1: pz = 0.6 Vz² (N/m²) — design wind pressure at height z
+        # Cl. 7.2: pz = 0.6 Vz² (N/m²) — wind pressure at height z
         pz_t2 = round(0.6 * vz_t2 ** 2)
         pz_t1 = round(0.6 * vz_t1 ** 2)
         design = {

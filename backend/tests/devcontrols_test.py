@@ -38,7 +38,7 @@ def test_open_space_is_monotonic_in_height():
 
 
 def test_open_space_is_capped_above_the_table():
-    assert open_space_for_height(200.0) == 16.0
+    assert open_space_for_height(200.0) == 20.0
 
 
 def test_front_setback_grows_with_plot_size():
