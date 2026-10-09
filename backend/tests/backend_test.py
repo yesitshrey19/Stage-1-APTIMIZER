@@ -313,13 +313,21 @@ class TestVersions:
 
 
 class TestReports:
-    @pytest.mark.parametrize("rtype", ["executive", "boq", "cost", "quantity", "parking", "compliance", "utilities"])
+    # Stage 1 (Site) publishes the Site reports only.
+    @pytest.mark.parametrize("rtype", ["plot", "layout", "site", "township"])
     def test_pdf_report(self, engineer_token, created_project, rtype):
         r = requests.get(f"{API}/projects/{created_project['id']}/reports/{rtype}",
-                         headers=H(engineer_token), timeout=30)
+                         headers=H(engineer_token), timeout=60)
         assert r.status_code == 200, f"{rtype} -> {r.status_code}"
         assert r.headers.get("content-type", "").startswith("application/pdf")
         assert len(r.content) > 500
+
+    # Later-stage reports must be refused, not half-built.
+    @pytest.mark.parametrize("rtype", ["executive", "boq", "cost", "quantity", "parking", "compliance", "utilities"])
+    def test_later_stage_reports_are_refused(self, engineer_token, created_project, rtype):
+        r = requests.get(f"{API}/projects/{created_project['id']}/reports/{rtype}",
+                         headers=H(engineer_token), timeout=30)
+        assert r.status_code == 400, f"{rtype} -> {r.status_code}"
 
     def test_boq_excel(self, engineer_token, created_project):
         r = requests.get(f"{API}/projects/{created_project['id']}/boq.xlsx",
