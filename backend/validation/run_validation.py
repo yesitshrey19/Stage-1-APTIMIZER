@@ -370,8 +370,9 @@ METRICS = [
      "each s = height difference / length x 100."),
     ("seismic_zone", "Seismic zone", "exact", None, "", "IS 1893 (Part 1):2016 zone map",
      "Read the zone (II, III, IV or V) for the city from IS 1893 Annex E / the BIS seismic map."),
-    ("wind_vb_ms", "Basic wind speed Vb", "abs", 0.01, "m/s", "IS 875 (Part 3):2015 Annex A",
-     "Read Vb for the city from IS 875-3 Annex A (e.g. Bengaluru 33 m/s)."),
+    ("wind_vb_ms", "Basic wind speed Vb", "abs", 0.01, "m/s", "IS 875 (Part 3):2015 Annex A (Amd 2, 2020)",
+     "Read Vb for the city from IS 875-3 Annex A as substituted by Amendment No. 2, 2020 "
+     "(e.g. Bengaluru 33, Delhi 50 m/s)."),
     ("sunrise_mar", "Sunrise 21 Mar 2026 (IST)", "time", 2, "min", "NOAA Solar Calculator",
      "gml.noaa.gov/grad/solcalc: enter the plot lat/long, date 2026-03-21, time zone +5.5; read Sunrise."),
     ("sunset_mar", "Sunset 21 Mar 2026 (IST)", "time", 2, "min", "NOAA Solar Calculator",
@@ -686,16 +687,19 @@ def write_workbook(out_path, plots, results, run_meta, carried):
     me.append([])
     notes = [
         "Known limits (state these alongside the results):",
-        "• Elevation comes from the Copernicus 90 m DEM (via Open-Meteo); slope on plots under ~1 ha is coarse.",
+        "• Elevation comes from the Copernicus 90 m DEM (via Open-Meteo), with NASA SRTM 30 m as the fallback; "
+        "slope on plots under 2 ha is flagged low-confidence and scored n/a.",
         "• Roads, water and buildings come from OpenStreetMap, which can be incomplete; OSM has no road widths "
         "here, so 'widest road' is inferred from the road class, not measured.",
         "• Nearest-road distances are measured to the road centreline; nearest-water to the water body's edge.",
         "• Seismic zone and design wind speed are looked up by city (IS 1893 / IS 875-3), so every plot in one "
         "city gets the same value. Test plots in other cities to exercise them.",
-        "• Prevailing wind and mean wind speed are regional climatology values, not site measurements; "
-        "NASA POWER is a coarse grid, so treat both as a city-level check.",
-        "• FAR caps and ground coverage are indicative defaults; Bengaluru's binding rules are the BBMP RMP-2015 "
-        "zoning regulations. Setback minimums follow NBC 2016 Part 3.",
+        "• Prevailing wind directions are regional climatology; mean wind speed is NASA POWER's 10 m "
+        "climatology. Neither is a site measurement, and NASA POWER is a coarse grid, so treat both as a "
+        "city-level check.",
+        "• FAR caps and ground coverage are indicative defaults; Bengaluru's binding rules are the BDA RMP-2015 "
+        "zoning regulations. Setback minimums follow NBC 2016 Part 3, plus BDA's 5 m all-round minimum for "
+        "low-rise on Bengaluru plots over 4,000 m².",
         "• Plots with an APPROX boundary were modelled as a square of the recorded area: location checks are "
         "valid, area and layout results are not. Supply KML boundaries to fix this.",
         "• Land use is not an Aptimizer output; the sheet's land-use column checks OpenStreetMap/Bhuvan, not Aptimizer.",
@@ -798,9 +802,12 @@ async def main_async(args):
         "site_layout_engine": getattr(siteplan, "ENGINE_VERSION", "n/a"),
         "gis_rules_version": results[0].get("rules_version") if results else "n/a",
         "map_data": "OpenStreetMap via Overpass (raced mirrors; cached 7 days in backend/.gis_cache)",
-        "elevation_data": "Copernicus 90 m DEM via Open-Meteo, Open-Elevation as fallback",
-        "sun_and_solar": "NOAA solar position equations; clear-sky insolation model in gis.py",
-        "codes": "IS 1893 (Part 1):2016 seismic zones, IS 875 (Part 3):2015 basic wind speed, NBC 2016 Part 3 setbacks",
+        "elevation_data": ("Copernicus 90 m DEM via Open-Meteo; NASA SRTM 30 m (OpenTopoData), then "
+                           "Open-Elevation, as fallbacks"),
+        "sun_and_solar": ("NOAA solar position equations; NASA POWER monthly irradiation and 10 m wind "
+                          "(clear-sky model as fallback)"),
+        "codes": ("IS 1893 (Part 1):2016 seismic zones, IS 875 (Part 3):2015 + Amd 2 (2020) basic wind speed, "
+                  "NBC 2016 Part 3 setbacks"),
         "layout_inputs": (f"Recommended controls at the sheet's 'Measured road width (m)' where given, else an assumed "
                           f"{DEFAULT_ROAD_WIDTH_M:g} m abutting road; layout skipped "
                           f"above {LAYOUT_MAX_SQM / 10_000:.0f} ha"),
