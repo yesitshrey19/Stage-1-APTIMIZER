@@ -51,6 +51,7 @@ export default function ConsultantPanel({
   projectId,
   saved = null,           // project.ai.consult -- memos stored per topic
   defaultTopic = "general",
+  onRev = null,           // storing a memo bumps the project revision; the workspace takes it
   readOnly = false,
   aiReady = true,
   gis = null,             // the site analysis, so suggestions can quote its figures
@@ -88,7 +89,9 @@ export default function ConsultantPanel({
       const { data } = await api.post(`/projects/${projectId}/ai/consult`, {
         topic, question: question.trim(),
       });
-      setMemos((m) => ({ ...m, [topic]: data }));
+      const { rev, ...memo } = data;
+      if (rev !== undefined && rev !== null) onRev?.(rev);
+      setMemos((m) => ({ ...m, [topic]: memo }));
       toast.success("Advisory memo generated");
     } catch (e) {
       toast.error(apiError(e.response?.data?.detail));

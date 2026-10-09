@@ -500,6 +500,7 @@ export default function GisModule({ project, projectId, readOnly, setProject }) 
             projectId={projectId}
             saved={project?.ai?.consult}
             defaultTopic="flood"
+            onRev={takeRev}
             readOnly={readOnly}
             aiReady={aiReady}
             gis={gis}

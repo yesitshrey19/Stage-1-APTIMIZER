@@ -21,6 +21,7 @@ from fastapi import APIRouter, Depends, FastAPI, File, Form, HTTPException, Requ
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, StreamingResponse
 from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo import ReturnDocument
 from pydantic import BaseModel, EmailStr, Field
 from starlette.middleware.cors import CORSMiddleware
 
@@ -1294,12 +1295,18 @@ async def _run_ai(kind: str, context: dict, *, store_at: str = "", project_id: s
 
     summary = {"text": result["text"], "model": result["model"],
                "provider": result["provider"], "generated_at": now_iso()}
+    rev = None
     if store_at and project_id:
-        await db.projects.update_one({"_id": oid(project_id)},
-                                     {"$inc": {"rev": 1}, "$set": {store_at: summary, "updated_at": now_iso()}})
+        # Storing the memo bumps the project's revision. Hand the new one back so the
+        # workspace's next autosave is not refused as a conflict with this write.
+        doc = await db.projects.find_one_and_update(
+            {"_id": oid(project_id)},
+            {"$inc": {"rev": 1}, "$set": {store_at: summary, "updated_at": now_iso()}},
+            projection={"rev": 1}, return_document=ReturnDocument.AFTER)
+        rev = (doc or {}).get("rev")
     if activity and project_id and user:
         await log_activity(project_id, user, activity, f"{result['model']} analysis generated")
-    return summary
+    return {**summary, "rev": rev} if rev is not None else summary
 
 
 @api.get("/ai/status")
