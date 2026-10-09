@@ -52,6 +52,27 @@ RETRY_ATTEMPTS = max(1, int(os.environ.get("AI_RETRY_ATTEMPTS") or 2))  # per mo
 # defaults (10 minutes, plus their own hidden retries) let a stuck provider hold a request
 # far longer than anyone waits at a button.
 AI_TIMEOUT_S = float(os.environ.get("AI_TIMEOUT_S") or 45)
+# How long reasoning models think before answering. Measured on a 1,600-token site consult
+# (9 Oct 2026): Groq gpt-oss-120b 3.9 s -> 2.3 s and half the tokens (so fewer rate-limit
+# hits), gpt-oss-20b 1.9 s -> 1.1 s and no more empty answers from a budget spent thinking,
+# Gemini 3.5 Flash 15.8 s -> 10.8 s. The answers are grounded in data already computed, so
+# deep reasoning adds time, not accuracy. Set AI_REASONING_EFFORT=medium or high to change.
+AI_REASONING_EFFORT = (os.environ.get("AI_REASONING_EFFORT") or "low").strip().lower()
+
+
+def _reasoning_kwargs(label: str, model: str) -> dict:
+    """Chat-completions arguments that limit thinking, for the models that accept them."""
+    if label == "groq" and "gpt-oss" in model:
+        return {"reasoning_effort": AI_REASONING_EFFORT}
+    return {}
+
+
+def _gemini_config(system: str, temperature: float, thinking: bool = True):
+    from google.genai import types
+    kw = {"system_instruction": system, "temperature": temperature}
+    if thinking:
+        kw["thinking_config"] = types.ThinkingConfig(thinking_level=AI_REASONING_EFFORT)
+    return types.GenerateContentConfig(**kw)
 
 # Clients are reused so every call does not open a new HTTPS connection (TLS handshake).
 # An async client's connection pool belongs to the event loop it was first used on, so the
@@ -281,13 +302,18 @@ async def _with_retries(models: list, call, label: str) -> dict:
 
 async def _gemini_generate(key: str, models: list, system: str, prompt: str,
                            temperature: float = 0.15) -> dict:
-    from google.genai import types
-
     client = _gemini_client(key)
-    config = types.GenerateContentConfig(system_instruction=system, temperature=temperature)
 
     async def call(model):
-        r = await client.aio.models.generate_content(model=model, contents=prompt, config=config)
+        try:
+            r = await client.aio.models.generate_content(
+                model=model, contents=prompt, config=_gemini_config(system, temperature))
+        except Exception as exc:
+            if "thinking" not in str(exc).lower():
+                raise
+            # An older model that has no thinking levels: ask again without one.
+            r = await client.aio.models.generate_content(
+                model=model, contents=prompt, config=_gemini_config(system, temperature, False))
         return getattr(r, "text", None)
 
     return await _with_retries(models, call, "gemini")
@@ -305,6 +331,7 @@ async def _openai_compatible_generate(key: str, base_url: str, models: list,
             messages=[{"role": "system", "content": system},
                       {"role": "user", "content": prompt}],
             temperature=temperature,
+            **_reasoning_kwargs(label, model),
         )
         return r.choices[0].message.content if r.choices else None
 
@@ -344,7 +371,7 @@ async def stream_markdown(system: str, prompt: str, *, session_hint: str = "apti
             model=model,
             messages=[{"role": "system", "content": system},
                       {"role": "user", "content": prompt}],
-            temperature=temperature, stream=True)
+            temperature=temperature, stream=True, **_reasoning_kwargs(name, model))
         async for chunk in stream:
             if chunk.choices and chunk.choices[0].delta.content:
                 yield chunk.choices[0].delta.content
@@ -352,11 +379,10 @@ async def stream_markdown(system: str, prompt: str, *, session_hint: str = "apti
         return
 
     if name == "gemini":
-        from google.genai import types as gtypes
         client = _gemini_client(os.environ["GEMINI_API_KEY"].strip())
         stream = await client.aio.models.generate_content_stream(
             model=model, contents=prompt,
-            config=gtypes.GenerateContentConfig(system_instruction=system, temperature=temperature))
+            config=_gemini_config(system, temperature))
         async for chunk in stream:
             if getattr(chunk, "text", None):
                 yield chunk.text
@@ -401,9 +427,12 @@ async def generate_markdown(system: str, prompt: str, *, session_hint: str = "ap
             if other == p["provider"] or not _key_for(other):
                 continue
             logger.warning("%s failed (%s); falling back to %s", p["provider"], first, other)
+            # The user has already waited on the first provider, so the fallback leads
+            # with its fast model (Gemini Flash-Lite answers in ~2.5 s where Flash takes
+            # 10-16 s); the strong model stays in the chain behind it.
             try:
                 return await _generate_with(other, _describe(other)["model"], system, prompt,
-                                            prefer_fast=prefer_fast, temperature=temperature)
+                                            prefer_fast=True, temperature=temperature)
             except AIFailed:
                 continue
         raise first
