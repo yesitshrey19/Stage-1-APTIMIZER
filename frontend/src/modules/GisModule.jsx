@@ -175,7 +175,8 @@ export default function GisModule({ project, projectId, readOnly, setProject }) 
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mt-3">
             <Metric label="Suitability" value={`${gis.suitability.score}`} unit={`/100 ${gis.suitability.grade}`}
               tone={gis.suitability.score >= 65 ? "success" : "danger"} testid="gis-suitability-score" />
-            <Metric label="Avg slope" value={gis.terrain.avg_slope_pct ?? "—"} unit={`% ${gis.terrain.slope_class}`} testid="gis-slope" />
+            <Metric label="Avg slope" value={gis.terrain.avg_slope_pct ?? "—"} unit={`% ${gis.terrain.slope_class}`} testid="gis-slope"
+              hint={gis.terrain.slope_confidence === "low" ? gis.terrain.slope_note : undefined} />
             <Metric label="Flood risk" value={gis.flood.level} tone={gis.flood.level === "low" ? "success" : "danger"} testid="gis-flood-level" />
             <Metric label="Nearest road" value={gis.accessibility.nearest_road_m ?? "—"} unit="m" testid="gis-nearest-road" />
             <Metric label="Buildings nearby" value={`${int(gis.feature_counts.buildings)}${gis.feature_counts_capped?.buildings ? "+" : ""}`} testid="gis-building-count" />

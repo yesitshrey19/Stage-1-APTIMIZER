@@ -56,7 +56,8 @@ EARTH_R = 6371000.0
 #    named drains/nalas, <= 5 m wide) are storm drains, not water bodies.
 # 10: site climate (monthly irradiation, optimal-tilt gain, 10 m wind) from NASA POWER, with
 #     the clear-sky model and regional wind table as the fallback.
-ANALYSIS_RULES_VERSION = 10
+# 11: slope flagged low-confidence on plots under 2 ha (below the 90 m elevation grid).
+ANALYSIS_RULES_VERSION = 11
 
 # A fountain or ornamental pool is tagged natural=water like a lake, and on its own was
 # enough to mark a plot "high" flood risk. Ponds and tanks that matter for drainage are
@@ -675,7 +676,25 @@ def terrain_analysis(coords):
         "avg_slope_pct": slope_pct,
         "slope_class": ("flat" if slope_pct < 2 else "gentle" if slope_pct < 5
                         else "moderate" if slope_pct < 10 else "steep"),
+        **_slope_confidence(coords),
     }, status
+
+
+# The elevation grid is ~90 m (Copernicus GLO-90). A plot narrower than about two grid cells
+# is sampled from one or two cells, so the fitted plane mostly reflects neighbouring land.
+# Validation on 10 plots: every plot under 2 ha disagreed with both Google Earth and SRTM,
+# while plots of 2 ha and more largely agreed. Below that size the slope is reported but
+# flagged, and a site survey is the stated source of truth.
+SLOPE_MIN_PLOT_SQM = 20000.0
+
+
+def _slope_confidence(coords):
+    area = _ring_area_sqm(coords) if len(coords) >= 3 else 0.0
+    if area < SLOPE_MIN_PLOT_SQM:
+        return {"slope_confidence": "low",
+                "slope_note": (f"Plot is {area / 10000:.2f} ha -- smaller than the ~90 m elevation grid can "
+                               "resolve, so this slope is indicative only. Confirm with a site survey.")}
+    return {"slope_confidence": "normal", "slope_note": None}
 
 
 # ------------------------------------------------------------------ flood risk

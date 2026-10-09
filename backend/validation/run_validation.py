@@ -291,6 +291,7 @@ async def run_plot(p, boundary, radius_m):
         "elev_mean_m": g["terrain"].get("mean_m"), "elev_min_m": g["terrain"].get("min_m"),
         "elev_max_m": g["terrain"].get("max_m"), "relief_m": g["terrain"].get("relief_m"),
         "slope_pct": g["terrain"].get("avg_slope_pct"), "slope_class": g["terrain"].get("slope_class"),
+        "slope_confidence": g["terrain"].get("slope_confidence"),
         "seismic_zone": g["seismic"].get("zone"), "pga_surface_g": g["seismic"].get("pga_surface_g"),
         "wind_vb_ms": (g["wind"].get("is875_design") or {}).get("basic_wind_speed_vb_ms"),
         "wind_prevailing": g["wind"].get("prevailing"),
@@ -484,6 +485,9 @@ def write_workbook(out_path, plots, results, run_meta, carried):
                          f'AND(UPPER({G}{r})="NO",{A}{r}<>"high")),"PASS","FAIL"))')
             if key == "area_sqm" and approx:
                 res_f = '="n/a (approx. boundary)"'
+            if key == "slope_pct" and res.get("slope_confidence") == "low":
+                # Aptimizer itself flags this slope as indicative (plot below the DEM resolution)
+                res_f = '="n/a (plot < 2 ha, flagged)"'
             ws.cell(row=r, column=c0 + 2, value=err or None)
             ws.cell(row=r, column=c0 + 3, value=res_f)
         S = get_column_letter(rank_col)
@@ -600,6 +604,7 @@ def write_workbook(out_path, plots, results, run_meta, carried):
             ("Elev mean (m)", lambda p, x: x["elev_mean_m"]), ("Elev min (m)", lambda p, x: x["elev_min_m"]),
             ("Elev max (m)", lambda p, x: x["elev_max_m"]), ("Relief (m)", lambda p, x: x["relief_m"]),
             ("Slope (%)", lambda p, x: x["slope_pct"]), ("Slope class", lambda p, x: x["slope_class"]),
+            ("Slope confidence", lambda p, x: x.get("slope_confidence")),
             ("Seismic zone", lambda p, x: x["seismic_zone"]), ("Surface shaking, screening (g)", lambda p, x: x["pga_surface_g"]),
             ("Wind Vb (m/s)", lambda p, x: x["wind_vb_ms"]), ("Prevailing wind", lambda p, x: x["wind_prevailing"]),
             ("Sunrise 21 Mar", lambda p, x: x["sunrise_mar"]), ("Sunset 21 Mar", lambda p, x: x["sunset_mar"]),
