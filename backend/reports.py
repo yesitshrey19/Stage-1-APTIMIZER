@@ -1124,7 +1124,8 @@ def build_pdf(report_type: str, project: dict, a: dict, eng: dict = None) -> byt
                         for e in (plot.get("road_edges") or [])] or [0.0])
             chk = _sp.validate_setbacks(
                 applied, plot_area=float(areas["plot_area_sqm"] or 0),
-                road_width=road, height_m=float(areas["max_height_m"] or 0))
+                road_width=road, height_m=float(areas["max_height_m"] or 0),
+                city=(project.get("engineering") or {}).get("city") or project.get("location") or "")
             rows = [[r["edge"].title(), _n(r["applied_m"]), _n(r["minimum_m"]),
                      "PASS" if r["ok"] else "FAIL",
                      _n(r["shortfall_m"]) if r["shortfall_m"] else "-"]

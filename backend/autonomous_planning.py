@@ -103,7 +103,8 @@ def one_click_generate(params: Dict[str, Any]) -> Dict[str, Any]:
     }
 
     # Development controls & statutory setbacks
-    min_setbacks = setback_minimums(area_sqm, road_width=plot.get("road_width_m", 18.0), height_m=floors * 3.0)
+    min_setbacks = setback_minimums(area_sqm, road_width=plot.get("road_width_m", 18.0), height_m=floors * 3.0,
+                                    city=city)
     front_sb = min_setbacks.get("front", {}).get("minimum_m", 12.0) if isinstance(min_setbacks.get("front"), dict) else 12.0
     rear_sb = min_setbacks.get("rear", {}).get("minimum_m", 9.0) if isinstance(min_setbacks.get("rear"), dict) else 9.0
     side_sb = min_setbacks.get("side", {}).get("minimum_m", 9.0) if isinstance(min_setbacks.get("side"), dict) else 9.0
@@ -797,7 +798,8 @@ def autonomous_compliance_audit(project: Dict[str, Any]) -> Dict[str, Any]:
                        "unit": r.get("unit"), "status": "pass" if ok else "fail", "margin": margin,
                        "remediation": None if ok else r.get("message")})
 
-    sb_rules = setback_minimums(ar["plot_area_sqm"], road_width=road_w or 12.0, height_m=height_m)
+    sb_rules = setback_minimums(ar["plot_area_sqm"], road_width=road_w or 12.0, height_m=height_m,
+                                city=(project.get("engineering") or {}).get("city") or project.get("location") or "")
     sb = (project.get("dev_controls") or {}).get("setbacks") or {}
 
     def minimum(key, default):

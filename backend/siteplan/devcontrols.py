@@ -40,6 +40,29 @@ PLOT_FRONT_SETBACK = [
     (250.0, 3.0), (500.0, 4.5), (1000.0, 6.0), (2500.0, 9.0), (float("inf"), 12.0),
 ]
 
+# BDA RMP-2015 Zoning Regulations (Vol III, 2007), Table 8 note, p.19: on a plot over
+# 4,000 m2, a building up to 11.5 m high keeps at least 5 m on all sides. Above 11.5 m BDA
+# Table 9 governs, and its values equal NBC Table 4 above (16 m flat above 50 m, where the
+# NBC figures here are already higher), so only the low-rise floor needs adding.
+BDA_LARGE_PLOT_SQM = 4000.0
+BDA_LOW_RISE_HEIGHT_M = 11.5
+BDA_LARGE_PLOT_SETBACK_M = 5.0
+BDA_CLAUSE = "BDA RMP-2015 Zoning Regulations, Table 8 note (p.19)"
+
+
+def is_bengaluru(city: str) -> bool:
+    c = (city or "").lower()
+    return "bengaluru" in c or "bangalore" in c
+
+
+def bda_setback_floor(plot_area: float, height_m: float, city: str) -> float:
+    """The BDA all-round minimum for a low-rise building on a large Bengaluru plot, else 0."""
+    if (is_bengaluru(city) and plot_area > BDA_LARGE_PLOT_SQM
+            and height_m <= BDA_LOW_RISE_HEIGHT_M):
+        return BDA_LARGE_PLOT_SETBACK_M
+    return 0.0
+
+
 # NBC 2016 Part 3 Cl. 9.4.1(a): the height of a building shall not exceed 1.5 x the width of
 # the abutting road plus the front open space, the front open space counted up to 16 m.
 # A plot with no adequate road frontage cannot support a tall building however large it is.
@@ -82,7 +105,7 @@ def max_height_from_road(road_width: float, front_setback: float) -> float:
 
 
 def setback_minimums(plot_area: float, road_width: float = 0.0,
-                     height_m: float = 0.0) -> Dict[str, Any]:
+                     height_m: float = 0.0, city: str = "") -> Dict[str, Any]:
     """The statutory minimum for each edge, with the rule that produced it.
 
     One place decides what "too small" means, so the module that edits setbacks and the
@@ -92,6 +115,8 @@ def setback_minimums(plot_area: float, road_width: float = 0.0,
 
     Front is the larger of the plot-size minimum and the height-driven open space: a large
     plot and a tall building each set a floor, and the binding one is whichever is higher.
+    In Bengaluru the BDA 5 m all-round minimum for low-rise on plots over 4,000 m2 is a
+    further floor on every edge.
     """
     by_plot = front_setback_for_plot(plot_area)
     by_height = open_space_for_height(height_m) if height_m else 0.0
@@ -99,6 +124,17 @@ def setback_minimums(plot_area: float, road_width: float = 0.0,
     front_rule = ("plot area" if by_plot >= by_height else "building height")
 
     sides = by_height or open_space_for_height(0.0)
+    bda = bda_setback_floor(plot_area, height_m, city)
+    bda_front = bda > front
+    front = max(front, bda)
+    bda_sides = bda > sides
+    sides = max(sides, bda)
+    side_rule = f"NBC 2016 Part 3 — open space for {height_m:g} m of building height"
+    side_clause = "NBC 2016 Part 3, Cl. 8"
+    if bda_sides:
+        side_rule = (f"BDA: {bda:g} m on all sides for a building up to {BDA_LOW_RISE_HEIGHT_M:g} m on "
+                     f"a plot over {BDA_LARGE_PLOT_SQM:,.0f} m2 (more than the NBC figure)")
+        side_clause = BDA_CLAUSE
 
     out = {
         "front": {
@@ -108,22 +144,17 @@ def setback_minimums(plot_area: float, road_width: float = 0.0,
                      f"(NBC 2016 Part 3 Table 4); the larger governs"),
             "clause": "NBC 2016 Part 3, Cl. 8",
         },
-        "rear": {
-            "minimum_m": round(sides, 2),
-            "rule": f"NBC 2016 Part 3 — open space for {height_m:g} m of building height",
-            "clause": "NBC 2016 Part 3, Cl. 8",
-        },
-        "side": {
-            "minimum_m": round(sides, 2),
-            "rule": f"NBC 2016 Part 3 — open space for {height_m:g} m of building height",
-            "clause": "NBC 2016 Part 3, Cl. 8",
-        },
+        "rear": {"minimum_m": round(sides, 2), "rule": side_rule, "clause": side_clause},
+        "side": {"minimum_m": round(sides, 2), "rule": side_rule, "clause": side_clause},
         "default": {
             "minimum_m": round(sides, 2),
             "rule": "Applied to any edge not classified as front, rear or side",
-            "clause": "NBC 2016 Part 3, Cl. 8",
+            "clause": side_clause,
         },
     }
+    if bda_front:
+        out["front"]["rule"] = side_rule
+        out["front"]["clause"] = BDA_CLAUSE
     if road_width and road_width < MIN_ROAD_FOR_HIGHRISE and height_m >= HIGHRISE_HEIGHT_M:
         out["_note"] = (f"The abutting road is {road_width:g} m. NBC 2016 Part 3 Cl. 4.6(a) "
                         f"needs a road of at least {MIN_ROAD_FOR_HIGHRISE:g} m for a high-rise "
@@ -132,13 +163,14 @@ def setback_minimums(plot_area: float, road_width: float = 0.0,
 
 
 def validate_setbacks(applied: Dict[str, Any], plot_area: float,
-                      road_width: float = 0.0, height_m: float = 0.0) -> Dict[str, Any]:
+                      road_width: float = 0.0, height_m: float = 0.0,
+                      city: str = "") -> Dict[str, Any]:
     """Check applied setbacks against the statutory minimums.
 
     Returns one row per edge carrying the applied value, the minimum, whether it clears it
     and by how much. The caller decides what to do about a failure -- this only reports.
     """
-    mins = setback_minimums(plot_area, road_width, height_m)
+    mins = setback_minimums(plot_area, road_width, height_m, city)
     rows = []
     for edge in ("front", "rear", "side", "default"):
         rule = mins[edge]
@@ -208,7 +240,7 @@ def recommend(plot_area: float,
     height = 15.0
     side = open_space_for_height(height)
     for _ in range(25):
-        side = open_space_for_height(height)
+        side = max(open_space_for_height(height), bda_setback_floor(plot_area, height, city))
         front = max(front_setback_for_plot(plot_area), side)
         # Square-ish plot approximation for the envelope the setbacks leave behind.
         span = math.sqrt(plot_area)
@@ -233,7 +265,7 @@ def recommend(plot_area: float,
         # open space is part of it), so step down until height and front agree.
         for _ in range(20):
             height = road_cap
-            side = open_space_for_height(height)
+            side = max(open_space_for_height(height), bda_setback_floor(plot_area, height, city))
             front = max(front_setback_for_plot(plot_area), side)
             road_cap = max_height_from_road(road_width, front)
             if height <= road_cap + 1e-9:
@@ -249,16 +281,18 @@ def recommend(plot_area: float,
     achievable_floor_area = min(permitted_floor_area, footprint_cap * floors)
     units = int((achievable_floor_area * carpet_efficiency) // max(area_per_unit, 1.0))
 
+    bda_governs = bda_setback_floor(plot_area, height, city) > open_space_for_height(height)
+    side_source = (BDA_CLAUSE + ": 5 m all round, low-rise on a plot over 4,000 m2" if bda_governs
+                   else "NBC 2016 Part 3 Table — open space by building height")
+
     items: List[Recommendation] = [
         Recommendation("front_setback", "Front setback", round(front, 1), "m",
                        "NBC 2016 Part 3 Table 4 / Aptimizer plot-size assumption", "code",
                        note="Greater of the plot-size minimum (Aptimizer assumption, not an NBC "
                             "clause) and the height-driven open space (NBC Table 4)."),
-        Recommendation("side_setback", "Side setback", round(side, 1), "m",
-                       "NBC 2016 Part 3 Table — open space by building height", "code",
+        Recommendation("side_setback", "Side setback", round(side, 1), "m", side_source, "code",
                        note=f"Driven by a building height of {height:.1f} m."),
-        Recommendation("rear_setback", "Rear setback", round(side, 1), "m",
-                       "NBC 2016 Part 3 Table — open space by building height", "code"),
+        Recommendation("rear_setback", "Rear setback", round(side, 1), "m", side_source, "code"),
         Recommendation("far", "Floor Area Ratio (FAR)", round(far, 2), "",
                        "User override" if far_is_override else
                        f"Indicative for {city or 'this location'}",

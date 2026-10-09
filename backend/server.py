@@ -1078,7 +1078,8 @@ async def project_setbacks(project_id: str, user: dict = Depends(get_current_use
     road_width = max([float(e.get("width") or 0) for e in edges] or [0.0])
     check = siteplanlib.validate_setbacks(
         applied, plot_area=float(an["areas"]["plot_area_sqm"] or 0),
-        road_width=road_width, height_m=float(an["areas"]["max_height_m"] or 0))
+        road_width=road_width, height_m=float(an["areas"]["max_height_m"] or 0),
+        city=(proj.get("engineering") or {}).get("city") or proj.get("location") or "")
     return {**check, "applied": applied, "road_width_m": road_width,
             "height_m": an["areas"]["max_height_m"],
             "plot_area_sqm": an["areas"]["plot_area_sqm"]}

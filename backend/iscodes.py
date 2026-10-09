@@ -194,9 +194,12 @@ WIND_KD = 0.90  # Cl. 7.2.1 wind directionality (buildings); 1.0 in cyclone-affe
 
 # IS 875 (Part 3):2015 Cl. 7.2.1: "For the cyclone affected regions also the factor Kd shall be
 # taken as 1.0". The cyclone-affected belt is the ~60 km strip along the east coast and the
-# Gujarat coast (Cl. 6.3.4). Cities in the reference table whose centre lies inside that belt;
-# a site near the 60 km line should be checked against its actual distance from the coast.
-CYCLONE_BELT_CITIES = {"Chennai", "Puducherry", "Visakhapatnam", "Bhubaneswar", "Surat", "Bhuj"}
+# Gujarat coast (Cl. 6.3.4). Cities in the reference table whose centre lies inside that belt
+# (Guntur, about 53 km from the Bapatla coast, and Vadodara, about 55 km from the Gulf of Khambhat,
+# added on the 9 Oct code check; Rajkot ~66 km, Vijayawada ~70 km and Cuttack ~74 km stay out). A
+# site near the 60 km line should be checked against its actual distance from the coast.
+CYCLONE_BELT_CITIES = {"Chennai", "Puducherry", "Visakhapatnam", "Bhubaneswar", "Surat", "Bhuj", "Guntur",
+                       "Vadodara"}
 
 
 def wind_kd(city):
@@ -205,6 +208,8 @@ def wind_kd(city):
 WIND_KA = 0.90  # Cl. 7.2.2 / Table 4 area averaging: 0.90 is the 25 m² value, kept conservatively
                 # (Table 4 allows 0.80 at 100 m² and above, subject to Kd·Ka·Kc >= 0.70).
 WIND_KC = 0.90  # Cl. 7.3.3.13 combination factor
+WIND_PD_MIN_FRACTION = 0.70  # Cl. 7.2: pd shall not be taken as less than 0.70 pz
+WIND_K4 = 1.0   # Cl. 6.3.4: "all other structures" (housing), also inside the cyclone belt
 
 # ---------------------------------------------------------------- IS 875-3 Cl. 7.4
 # Force coefficient Cf for rectangular clad buildings: F = Cf x Ae x pd. Omitting it
@@ -581,13 +586,17 @@ CITIES = {
     "Thane": ("Maharashtra", "III", 44, 2100, 90),
     "Delhi": ("Delhi", "IV", 50, 790, 75),
     "New Delhi": ("Delhi", "IV", 50, 790, 75),
-    "Gurugram": ("Haryana", "IV", 47, 700, 70),
-    "Noida": ("Uttar Pradesh", "IV", 47, 750, 70),
-    "Faridabad": ("Haryana", "IV", 47, 700, 70),
+    # Gurugram, Noida, Faridabad, Meerut, Jalandhar and Haridwar are not in IS 875-3 Annex A. They
+    # carried the old 47 m/s; each lies 20-65 km from Annex A cities that Amendment No. 2 (2020)
+    # puts at 50 m/s (Delhi, Ludhiana, Amritsar, Roorkee), so they take 50 m/s -- the conservative
+    # reading of the wind map at a zone boundary. Confirm against NBC 2016 Part 6 Fig. 1 for a site.
+    "Gurugram": ("Haryana", "IV", 50, 700, 70),
+    "Noida": ("Uttar Pradesh", "IV", 50, 750, 70),
+    "Faridabad": ("Haryana", "IV", 50, 700, 70),
     "Chandigarh": ("Chandigarh", "IV", 50, 1100, 75),
     "Ludhiana": ("Punjab", "IV", 50, 750, 70),
     "Amritsar": ("Punjab", "IV", 50, 700, 70),
-    "Jalandhar": ("Punjab", "IV", 47, 700, 70),
+    "Jalandhar": ("Punjab", "IV", 50, 700, 70),
     "Bengaluru": ("Karnataka", "II", 33, 970, 60),
     "Mysuru": ("Karnataka", "II", 33, 800, 55),
     "Mangaluru": ("Karnataka", "III", 39, 3500, 100),
@@ -626,9 +635,9 @@ CITIES = {
     "Varanasi": ("Uttar Pradesh", "III", 47, 1100, 75),
     "Agra": ("Uttar Pradesh", "III", 47, 700, 70),
     "Prayagraj": ("Uttar Pradesh", "II", 47, 1000, 72),
-    "Meerut": ("Uttar Pradesh", "IV", 47, 850, 70),
+    "Meerut": ("Uttar Pradesh", "IV", 50, 850, 70),
     "Dehradun": ("Uttarakhand", "IV", 39, 2100, 85),
-    "Haridwar": ("Uttarakhand", "IV", 47, 1150, 80),
+    "Haridwar": ("Uttarakhand", "IV", 50, 1150, 80),
     "Shimla": ("Himachal Pradesh", "IV", 39, 1550, 75),
     "Srinagar": ("Jammu & Kashmir", "V", 39, 720, 60),
     "Jammu": ("Jammu & Kashmir", "IV", 47, 1100, 75),

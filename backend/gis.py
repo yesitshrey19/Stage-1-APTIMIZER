@@ -59,7 +59,9 @@ EARTH_R = 6371000.0
 # 11: slope flagged low-confidence on plots under 2 ha (below the 90 m elevation grid).
 # 12: elevation retries rate limits and falls back to NASA SRTM 30 m, so hosted runs no
 #     longer come back with "elevation data unavailable".
-ANALYSIS_RULES_VERSION = 12
+# 13: IS 875-3 check (9 Oct): six cities beside 50 m/s Annex A cities raised 47 -> 50 m/s,
+#     Guntur and Vadodara added to the cyclone belt, k3 flagged on slopes over 3 degrees (Cl. 6.3.3.1).
+ANALYSIS_RULES_VERSION = 13
 
 # A fountain or ornamental pool is tagged natural=water like a lake, and on its own was
 # enough to mark a plot "high" flood risk. Ponds and tanks that matter for drainage are
@@ -875,7 +877,11 @@ WIND_REGIONS = [
 ]
 
 
-def wind_profile(lat, lng, city_ref=None, building_height_m=0, climate=None):
+# IS 875-3 Cl. 6.3.3.1: topography matters when the upwind slope is more than about 3 degrees.
+K3_SLOPE_LIMIT_PCT = round(100 * math.tan(math.radians(3.0)), 2)     # 5.24 %
+
+
+def wind_profile(lat, lng, city_ref=None, building_height_m=0, climate=None, terrain=None):
     for a, b, c, d, label, prevailing, summer, winter, speed in WIND_REGIONS:
         if a <= lat <= b and c <= lng <= d:
             region, prev, sm, wt, sp = label, prevailing, summer, winter, speed
@@ -916,6 +922,10 @@ def wind_profile(lat, lng, city_ref=None, building_height_m=0, climate=None):
         k2_open = round(interp(k2_t1), 3)
         k1_risk = 1.0          # general structures, Cl. 6.3.1
         k3 = 1.0               # flat terrain, Cl. 6.3.3
+        # Cl. 6.3.3.1: k3 = 1.0 only when the upwind slope is under about 3 degrees. The plot's
+        # own mean slope is the screening proxy; above the limit k3 may reach 1.36 (Annex C).
+        slope = (terrain or {}).get("avg_slope_pct") if (terrain or {}).get("available") else None
+        k3_check = bool(slope is not None and slope > K3_SLOPE_LIMIT_PCT)
         k4 = 1.0               # 'all other structures' incl. housing, Cl. 6.3.4 (1.0 everywhere)
         # wind directionality, Cl. 7.2.1: 0.90 for buildings, 1.0 in the cyclone belt
         cyclone = bool(city_ref.get("cyclone_belt"))
@@ -932,6 +942,10 @@ def wind_profile(lat, lng, city_ref=None, building_height_m=0, climate=None):
             "design_height_m": round(hc, 1),
             "k2_terrain2": k2, "k2_terrain1": k2_open,
             "kd": kd, "k1": k1_risk, "k3": k3, "k4": k4, "cyclone_belt": cyclone,
+            "k3_check_required": k3_check,
+            "k3_note": (f"Mean slope {slope:.1f}% is above 3 degrees ({K3_SLOPE_LIMIT_PCT}%): k3 can exceed 1.0 "
+                        "(up to 1.36) on hills and ridges -- evaluate it per IS 875-3 Annex C." if k3_check
+                        else None),
             "design_wind_speed_terrain2_ms": vz_t2,
             "design_wind_speed_terrain1_ms": vz_t1,
             "design_wind_pressure_terrain2_nm2": pz_t2,
@@ -942,6 +956,8 @@ def wind_profile(lat, lng, city_ref=None, building_height_m=0, climate=None):
                      "Open coastal/flat sites (terrain 1) see more — structural module carries the check."
                      + (" Cyclone belt: Kd = 1.0 (IS 875-3 Cl. 7.2.1)." if cyclone else "")),
         }
+        if k3_check:
+            design["note"] += " " + design["k3_note"]
 
     # Site mean wind from NASA POWER's 10 m climatology when available; the regional
     # figure above is the fallback and still supplies the prevailing directions.
@@ -1556,7 +1572,7 @@ async def analyse_site(project, radius_m=500):
     max_height = max_floors * floor_h if max_floors else 0
     soil = (project.get("engineering") or {}).get("soil_type") or "medium clay"
     seismic = seismic_hazard(city_ref, terrain, soil)
-    wind = wind_profile(c[0], c[1], city_ref, max_height, climate)
+    wind = wind_profile(c[0], c[1], city_ref, max_height, climate, terrain)
     suit = suitability(terrain, flood, access, sun, seismic, wind)
     build = buildability(terrain, flood, access, features)
     # Seismic flags are buildability flags too — a liquefaction-susceptible site is as

@@ -111,3 +111,29 @@ def test_the_envelope_and_the_validator_read_the_same_minimum():
     the engine that builds the envelope cannot disagree."""
     from siteplan import validate_setbacks as exported
     assert exported is validate_setbacks
+
+
+# BDA RMP-2015 Table 8 note: plots over 4,000 m2 keep 5 m on all sides up to 11.5 m height.
+def test_bda_low_rise_large_plot_floor_in_bengaluru():
+    m = setback_minimums(6000.0, 12.0, 9.0, city="Bengaluru")
+    for edge in ("front", "rear", "side", "default"):
+        assert m[edge]["minimum_m"] >= 5.0
+    assert m["side"]["minimum_m"] == 5.0 and "BDA" in m["side"]["clause"]
+
+
+@pytest.mark.parametrize("area,height,city", [
+    (6000.0, 9.0, "Delhi"),          # outside Bengaluru: NBC only
+    (3500.0, 9.0, "Bengaluru"),      # plot not over 4,000 m2
+    (6000.0, 15.0, "Bengaluru"),     # above 11.5 m: Table 9 = NBC Table 4
+])
+def test_bda_floor_not_applied(area, height, city):
+    m = setback_minimums(area, 12.0, height, city=city)
+    assert "BDA" not in m["side"]["clause"]
+    assert m["side"]["minimum_m"] == open_space_for_height(height)
+
+
+def test_bda_floor_accepts_bangalore_spelling_and_validates():
+    v = validate_setbacks({"front": 12, "rear": 3, "side": 3, "default": 3}, 6000.0, 12.0, 9.0,
+                          city="Bangalore, Karnataka")
+    assert v["ok"] is False
+    assert {r["edge"]: r["shortfall_m"] for r in v["edges"]}["side"] == 2.0
