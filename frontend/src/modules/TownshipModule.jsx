@@ -139,7 +139,7 @@ export default function TownshipModule({ project, projectId, analysis }) {
 
           {/* LAND USE ZONING TABLE */}
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-            <Section title="Land Use & Zoning Distribution" description="Master plan allocation compliant with UDPFI guidelines">
+            <Section title="Land Use & Zoning Distribution" description="Indicative master plan allocation — Aptimizer planning assumption">
               <Table>
                 <TableHeader>
                   <TableRow className="bg-slate-50 border-b border-slate-200">
@@ -160,6 +160,11 @@ export default function TownshipModule({ project, projectId, analysis }) {
                   ))}
                 </TableBody>
               </Table>
+              {plan.assumptions?.land_use_source && (
+                <p className="mt-2 text-[11px] leading-relaxed text-slate-500" data-testid="township-land-use-source">
+                  {plan.assumptions.land_use_source}
+                </p>
+              )}
             </Section>
 
             {/* SECTORS BREAKDOWN */}

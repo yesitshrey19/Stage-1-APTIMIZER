@@ -2332,7 +2332,7 @@ def build_township_pdf(project: dict, plan: dict) -> bytes:
            Paragraph(f"A {'mixed-use' if mixed else 'residential'} master plan over {_n(area)} m2 "
                      f"({area / 4046.86:,.2f} acres): {m.get('estimated_dwelling_units', '-')} dwellings at a blended "
                      f"FAR of {m.get('blended_far', '-')}, with {m.get('open_space_ratio_pct', '-')}% of the land kept "
-                     f"as open space. Land-use shares follow URDPFI-style planning norms and are indicative; "
+                     f"as open space. Land-use shares are Aptimizer planning assumptions (URDPFI gives city-level ranges only) "
                      f"align the plan with the statutory development plan before detailed design.", ss["Normal"]),
            Paragraph("Master Plan Metrics", ss["Sec"]),
            _kv([

@@ -895,6 +895,10 @@ def autonomous_boq_engine(project: Dict[str, Any]) -> Dict[str, Any]:
 # --------------------------------------------------------------------------- 6. AI Township & Mixed-Use Planner
 
 # Planning-stage assumptions, stated rather than buried in the numbers.
+# Team decision (code & bye-law study, rules G-01/G-02): the land-use split below is an
+# Aptimizer planning assumption. URDPFI 2015 Table 5.2 gives city-level ranges only and has no
+# township split, so the app must not present these shares as a guideline value.
+TOWNSHIP_LAND_USE_NOTE = ("Aptimizer planning assumption, not a code requirement. URDPFI Guidelines 2015 Table 5.2 gives city-level land-use ranges only (e.g. metro: residential 36-38%, transport 12-14%); align with the statutory development plan before detailed design.")
 TOWNSHIP_TOWER_GFA_SQM = 700.0 * 14       # a typical 700 m² plate on 14 floors
 TOWNSHIP_PERSONS_PER_HOME = 4.5
 TOWNSHIP_DEFAULT_HOME_SQM = 110.0         # built-up per home when the project has none yet
@@ -903,7 +907,7 @@ TOWNSHIP_DEFAULT_HOME_SQM = 110.0         # built-up per home when the project h
 def township_mixed_use_plan(project: Dict[str, Any], params: Dict[str, Any]) -> Dict[str, Any]:
     """Land-use split for a township, with homes and towers derived from the split.
 
-    The shares are planning-norm assumptions (URDPFI-style). Dwelling numbers follow from
+    The shares are Aptimizer planning assumptions (see TOWNSHIP_LAND_USE_NOTE). Dwelling numbers follow from
     residential land x FSI / built-up per home, using this project's own home size when it
     has one; they used to be fixed at 800 whatever the land area.
     """
@@ -959,7 +963,9 @@ def township_mixed_use_plan(project: Dict[str, Any], params: Dict[str, Any]) -> 
         "sectors": sectors,
         "assumptions": {"built_up_per_home_sqm": round(home_sqm, 1),
                         "home_size_source": "this project" if am["units_est"] else "planning default",
-                        "tower_gfa_sqm": TOWNSHIP_TOWER_GFA_SQM, "persons_per_home": TOWNSHIP_PERSONS_PER_HOME},
+                        "tower_gfa_sqm": TOWNSHIP_TOWER_GFA_SQM, "persons_per_home": TOWNSHIP_PERSONS_PER_HOME,
+                        "persons_per_home_source": "NBC 2016 Part 3 Cl. 9.6.3.1",
+                        "land_use_source": TOWNSHIP_LAND_USE_NOTE},
         "master_plan_metrics": {
             "total_potential_builtup_sqm": round(total_potential_builtup, 1),
             "blended_far": round(total_potential_builtup / total_area_sqm, 2) if total_area_sqm else 0.0,

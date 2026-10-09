@@ -24,7 +24,7 @@ from shapely.geometry.base import BaseGeometry
 from shapely.prepared import prep
 
 from .config import SiteLayoutConfig
-from .fitness import (FitnessResult, PackContext, TowerPlacement, evaluate,
+from .fitness import (FitnessResult, PackContext, TowerPlacement, evaluate, note3_extra,
                       required_spacing)
 from .frame import polygons_of
 from .reserve import _principal_axis
@@ -145,13 +145,23 @@ def pack_region(region: Polygon, ctx: PackContext) -> List[TowerPlacement]:
             if (region_area // (w * d)) * w * d * cfg.towers.floors_max <= best_area:
                 continue
 
-            memo: Dict[float, List[Tuple[float, float]]] = {}
+            memo: Dict[Tuple[float, float], List[Tuple[float, float]]] = {}
             for floors in floor_values:
                 gap = round(max(cfg.towers.spacing_min,
                                 cfg.towers.spacing_height_factor * floors * cfg.towers.floor_height), 1)
-                if gap not in memo:
-                    memo[gap] = _grid_in_local(local_prep, bounds, w, d, gap)
-                centres = memo[gap]
+                # NBC Table 4 Note 3: a block longer than 40 m keeps extra distance from the
+                # setback line, so it is packed into the envelope shrunk by that amount.
+                extra = (round(note3_extra(max(w, d), floors * cfg.towers.floor_height), 2)
+                         if ctx.envelope is not None else 0.0)
+                key = (gap, extra)
+                if key not in memo:
+                    if extra > 0:
+                        sub = region.intersection(ctx.envelope.buffer(-extra))
+                        memo[key] = (_grid_in_local(prep(rotate(sub, -angle, origin=(cx0, cy0))), bounds, w, d, gap)
+                                     if not sub.is_empty else [])
+                    else:
+                        memo[key] = _grid_in_local(local_prep, bounds, w, d, gap)
+                centres = memo[key]
                 if not centres:
                     continue
                 total = len(centres) * w * d * floors

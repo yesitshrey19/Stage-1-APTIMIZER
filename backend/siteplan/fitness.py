@@ -60,6 +60,7 @@ class PackContext:
     roads: BaseGeometry
     plot_area: float
     cfg: SiteLayoutConfig
+    envelope: Any = None          # buildable envelope (plot minus setbacks), for Table 4 Note 3
     _prepared: Any = field(default=None, repr=False)
 
     def __post_init__(self):
@@ -67,6 +68,20 @@ class PackContext:
 
     def contains(self, geom: BaseGeometry) -> bool:
         return bool(self._prepared and self._prepared.contains(geom))
+
+
+def note3_extra(length_m: float, height_m: float) -> float:
+    """Extra side/rear open space for a long block -- NBC 2016 Part 3, Table 4, Note 3.
+
+    "If the length or depth of the building exceeds 40 m, add to col (3) ten percent of length
+    or depth of building minus 4.0 m subject to maximum requirement of 20 m." Table 4 applies to
+    buildings above 10 m. The addition is 0.1 x L - 4 m (nil at 40 m, 3.2 m at 72 m), and the
+    total with the Table 4 value is held to 20 m.
+    """
+    if height_m <= 10.0 or length_m <= 40.0:
+        return 0.0
+    from .devcontrols import open_space_for_height
+    return max(0.0, min(0.1 * length_m - 4.0, 20.0 - open_space_for_height(height_m)))
 
 
 def required_spacing(a: TowerPlacement, b: TowerPlacement, cfg: SiteLayoutConfig) -> float:
@@ -92,6 +107,10 @@ def evaluate(towers: Sequence[TowerPlacement], ctx: PackContext) -> FitnessResul
     for i, t in enumerate(towers):
         if not ctx.contains(t.polygon):
             hard.append(f"tower {i} is outside the packable region")
+        extra = note3_extra(max(t.width, t.depth), t.height_m) if ctx.envelope is not None else 0.0
+        if extra > 0 and not ctx.envelope.buffer(-extra).contains(t.polygon):
+            hard.append(f"tower {i} needs {extra:.1f} m more side/rear open space as a block longer "
+                        f"than 40 m (NBC Part 3 Table 4 Note 3)")
         if not ctx.roads.is_empty and t.polygon.intersects(ctx.roads):
             inter = t.polygon.intersection(ctx.roads).area
             if inter > 1e-6:

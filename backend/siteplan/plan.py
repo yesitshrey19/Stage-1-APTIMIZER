@@ -159,7 +159,7 @@ def plan(coordinates: Sequence[Sequence[float]],
     res = reserve(env, cfg)
 
     ctx = PackContext(region=res.residual, roads=res.roads,
-                      plot_area=env.plot.area, cfg=cfg)
+                      plot_area=env.plot.area, cfg=cfg, envelope=env.envelope)
     towers, notes = greedy_pack(ctx)
     method, ga_report = "greedy", None
 
