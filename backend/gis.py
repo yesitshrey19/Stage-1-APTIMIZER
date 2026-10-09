@@ -57,7 +57,9 @@ EARTH_R = 6371000.0
 # 10: site climate (monthly irradiation, optimal-tilt gain, 10 m wind) from NASA POWER, with
 #     the clear-sky model and regional wind table as the fallback.
 # 11: slope flagged low-confidence on plots under 2 ha (below the 90 m elevation grid).
-ANALYSIS_RULES_VERSION = 11
+# 12: elevation retries rate limits and falls back to NASA SRTM 30 m, so hosted runs no
+#     longer come back with "elevation data unavailable".
+ANALYSIS_RULES_VERSION = 12
 
 # A fountain or ornamental pool is tagged natural=water like a lake, and on its own was
 # enough to mark a plot "high" flood risk. Ponds and tanks that matter for drainage are
@@ -568,17 +570,34 @@ def _sample_points(coords):
 _http = requests.Session()         # keep-alive: repeat lookups skip the TLS handshake
 
 
+OPENTOPODATA_URL = "https://api.opentopodata.org/v1/{dataset}"
+_RETRY_STATUS = {429, 500, 502, 503, 504}
+
+
+def _get_with_retry(url, params, tries=3):
+    """GET that waits and retries on rate-limit / server errors. Free elevation APIs answer a
+    shared cloud address (a hosted server) with 429 far more often than a home connection."""
+    last = None
+    for attempt in range(tries):
+        r = _http.get(url, params=params, timeout=ELEVATION_TIMEOUT_S)
+        if r.status_code == 200:
+            return r
+        last = f"HTTP {r.status_code}"
+        if r.status_code not in _RETRY_STATUS:
+            break
+        time.sleep(1.5 * (attempt + 1))
+    raise RuntimeError(last or "no response")
+
+
 def _elevation_chunk(chunk):
-    r = _http.get(OPEN_METEO_ELEVATION_URL, timeout=ELEVATION_TIMEOUT_S, params={
+    r = _get_with_retry(OPEN_METEO_ELEVATION_URL, {
         "latitude": ",".join(f"{p[0]:.6f}" for p in chunk),
         "longitude": ",".join(f"{p[1]:.6f}" for p in chunk),
     })
-    if r.status_code != 200:
-        raise RuntimeError(f"HTTP {r.status_code}")
     values = r.json().get("elevation") or []
-    if len(values) != len(chunk):
+    if len(values) != len(chunk) or any(v is None for v in values):
         raise RuntimeError("incomplete elevation response")
-    return [float(v or 0) for v in values]
+    return [float(v) for v in values]
 
 
 def _fetch_elevation_open_meteo(points):
@@ -589,27 +608,69 @@ def _fetch_elevation_open_meteo(points):
         return [v for part in pool.map(_elevation_chunk, chunks) for v in part]
 
 
+def _fetch_elevation_opentopodata(points, dataset="srtm30m"):
+    """NASA SRTM 30 m via OpenTopoData: 100 points a call, at most one call a second."""
+    out = []
+    for i in range(0, len(points), 100):
+        if i:
+            time.sleep(1.1)
+        chunk = points[i:i + 100]
+        r = _get_with_retry(OPENTOPODATA_URL.format(dataset=dataset),
+                            {"locations": "|".join(f"{p[0]:.6f},{p[1]:.6f}" for p in chunk)})
+        res = r.json().get("results") or []
+        if len(res) != len(chunk) or any(x.get("elevation") is None for x in res):
+            raise RuntimeError("incomplete elevation response")
+        out += [float(x["elevation"]) for x in res]
+    return out
+
+
+def _fetch_elevation_open_elevation(points):
+    out = []
+    for i in range(0, len(points), 100):
+        chunk = points[i:i + 100]
+        r = _http.post(ELEVATION_URL, timeout=ELEVATION_TIMEOUT_S * 2,
+                       json={"locations": [{"latitude": p[0], "longitude": p[1]} for p in chunk]})
+        if r.status_code != 200:
+            raise RuntimeError(f"HTTP {r.status_code}")
+        res = r.json().get("results") or []
+        if len(res) != len(chunk):
+            raise RuntimeError("incomplete elevation response")
+        out += [float(x.get("elevation") or 0) for x in res]
+    return out
+
+
+# Tried in order. Copernicus 90 m (Open-Meteo) is the primary source -- it matched official
+# surveyed airport heights to within a metre in validation; NASA SRTM 30 m is the validated
+# second source; Open-Elevation is the last resort.
+ELEVATION_PROVIDERS = (
+    ("open-meteo (Copernicus 90 m)", _fetch_elevation_open_meteo),
+    ("opentopodata (NASA SRTM 30 m)", _fetch_elevation_opentopodata),
+    ("open-elevation", _fetch_elevation_open_elevation),
+)
+
+
 def fetch_elevation(points):
     # Ground levels do not change, so a re-run of the same plot reads them from the cache
     # the map data already uses instead of asking the elevation service again.
     key = "elevation:" + ";".join(f"{p[0]:.6f},{p[1]:.6f}" for p in points)
     cached = _cache_read(key)
     if cached is not None and len(cached.get("values") or []) == len(points):
-        return cached["values"], {"ok": True, "endpoint": "cache"}
-    try:
-        values = _fetch_elevation_open_meteo(points)
-        _cache_write(key, {"values": values})
-        return values, {"ok": True, "endpoint": OPEN_METEO_ELEVATION_URL}
-    except Exception as first:
-        body = {"locations": [{"latitude": p[0], "longitude": p[1]} for p in points]}
+        return cached["values"], {"ok": True, "endpoint": cached.get("source") or "cache"}
+    errors = []
+    for name, fetch in ELEVATION_PROVIDERS:
         try:
-            r = requests.post(ELEVATION_URL, json=body, timeout=ELEVATION_TIMEOUT_S * 2)
-            if r.status_code != 200:
-                return None, {"ok": False, "error": f"open-meteo: {first}; open-elevation: HTTP {r.status_code}"}
-            results = r.json().get("results", [])
-            return [float(x.get("elevation") or 0) for x in results], {"ok": True, "endpoint": ELEVATION_URL}
+            values = fetch(points)
         except Exception as exc:
-            return None, {"ok": False, "error": f"open-meteo: {first}; open-elevation: {exc}"}
+            errors.append(f"{name}: {exc}")
+            continue
+        if len(values) == len(points):
+            _cache_write(key, {"values": values, "source": name})
+            if errors:
+                logger.warning("Elevation served by %s after: %s", name, "; ".join(errors))
+            return values, {"ok": True, "endpoint": name}
+        errors.append(f"{name}: incomplete response")
+    logger.warning("Elevation unavailable for %d points: %s", len(points), "; ".join(errors))
+    return None, {"ok": False, "error": "; ".join(errors)}
 
 
 def _plane_slope_pct(points, elevations):

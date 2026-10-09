@@ -279,7 +279,11 @@ export default function GisModule({ project, projectId, readOnly, setProject }) 
                   </p>
                 </>
               ) : (
-                <p className="text-sm text-slate-500">Elevation data unavailable for this location.</p>
+                <p className="text-sm text-slate-500" data-testid="terrain-unavailable">
+                  The elevation services could not be reached when this analysis ran
+                  {gis.sources?.elevation?.error ? ` (${gis.sources.elevation.error})` : ""}. Click “Re-run analysis” to
+                  try again — Aptimizer now retries and falls back to NASA SRTM automatically.
+                </p>
               )}
             </Section>
 
