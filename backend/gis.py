@@ -16,7 +16,11 @@ import time
 
 import iscodes
 
+# All are raced at once and the first good answer wins, so one mirror being down (as
+# overpass-api.de, private.coffee and mail.ru all were on 9 Oct 2026, while the French
+# mirror answered in under 4 s) costs nothing.
 OVERPASS_ENDPOINTS = [
+    "https://overpass.openstreetmap.fr/api/interpreter",
     "https://overpass-api.de/api/interpreter",
     "https://overpass.private.coffee/api/interpreter",
     "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
@@ -337,10 +341,10 @@ def _cache_path(query):
     return os.path.join(_CACHE_DIR, hashlib.sha1(query.encode()).hexdigest() + ".json")
 
 
-def _cache_read(query):
+def _cache_read(query, max_age_s=_CACHE_TTL_S):
     path = _cache_path(query)
     try:
-        if time.time() - os.path.getmtime(path) > _CACHE_TTL_S:
+        if max_age_s is not None and time.time() - os.path.getmtime(path) > max_age_s:
             return None
         with open(path, encoding="utf-8") as fh:
             return _json.load(fh)
@@ -402,6 +406,12 @@ def _overpass_raw(query):
         fut.set_result((url, data))
         return url, data
     except Exception as exc:
+        # Every mirror down: an older copy of the same site's map data beats an analysis
+        # with no roads or lakes at all. Map data changes slowly.
+        stale = _cache_read(query, max_age_s=None)
+        if stale is not None:
+            fut.set_result(("cache (older copy; map servers unavailable)", stale))
+            return "cache (older copy; map servers unavailable)", stale
         fut.set_exception(exc)
         raise
     finally:
